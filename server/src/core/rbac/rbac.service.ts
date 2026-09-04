@@ -1,4 +1,9 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { PersistenceService } from '../persistence/persistence.service';
 
 export interface PermissionRecord {
@@ -14,6 +19,17 @@ export interface RoleRecord {
   name: string;
   permissionCodes: string[];
   system?: boolean;
+}
+
+export interface CreateRoleInput {
+  code: string;
+  name: string;
+  permissionCodes?: string[];
+}
+
+export interface UpdateRoleInput {
+  name?: string;
+  permissionCodes?: string[];
 }
 
 @Injectable()
@@ -46,9 +62,16 @@ export class RbacService implements OnModuleInit {
     this.registerPermissions('platform', [
       { code: 'platform.user.read', name: '查看用户' },
       { code: 'platform.user.write', name: '管理用户' },
+      { code: 'platform.tenant.read', name: '查看租户' },
+      {
+        code: 'platform.tenant.create',
+        name: '创建租户',
+        description: '平台开户：创建公司/组织，普通员工不可拥有',
+      },
       { code: 'platform.module.manage', name: '管理模块' },
       { code: 'platform.config.manage', name: '管理配置' },
       { code: 'platform.audit.read', name: '查看审计' },
+      { code: 'platform.rbac.manage', name: '管理角色权限' },
     ]);
 
     if (!this.roles.has('role.admin')) {
@@ -97,6 +120,10 @@ export class RbacService implements OnModuleInit {
     return this.roles.get(id);
   }
 
+  getRoleByCode(code: string): RoleRecord | undefined {
+    return [...this.roles.values()].find((r) => r.code === code);
+  }
+
   listPermissions(module?: string): PermissionRecord[] {
     const all = [...this.permissions.values()];
     return module ? all.filter((p) => p.module === module) : all;
@@ -104,6 +131,72 @@ export class RbacService implements OnModuleInit {
 
   listRoles(): RoleRecord[] {
     return [...this.roles.values()];
+  }
+
+  createRole(input: CreateRoleInput): RoleRecord {
+    const code = input.code.trim();
+    const name = input.name.trim();
+    if (!code || !name) {
+      throw new BadRequestException('code and name are required');
+    }
+    if (!/^[a-z][a-z0-9._-]*$/i.test(code)) {
+      throw new BadRequestException(
+        'code must start with a letter and contain only letters, digits, ., _, -',
+      );
+    }
+    if (this.getRoleByCode(code)) {
+      throw new BadRequestException(`Role code "${code}" already exists`);
+    }
+    const permissionCodes = this.normalizePermissionCodes(
+      input.permissionCodes ?? [],
+    );
+    const role: RoleRecord = {
+      id: `role.${code}`,
+      code,
+      name,
+      permissionCodes,
+      system: false,
+    };
+    this.roles.set(role.id, role);
+    void this.persist();
+    return role;
+  }
+
+  updateRole(id: string, patch: UpdateRoleInput): RoleRecord {
+    const role = this.roles.get(id);
+    if (!role) {
+      throw new NotFoundException(`Role ${id} not found`);
+    }
+    const next: RoleRecord = { ...role };
+    if (patch.name !== undefined) {
+      const name = patch.name.trim();
+      if (!name) throw new BadRequestException('name cannot be empty');
+      next.name = name;
+    }
+    if (patch.permissionCodes !== undefined) {
+      next.permissionCodes = this.normalizePermissionCodes(
+        patch.permissionCodes,
+      );
+      // Keep admin wildcard if this is the system admin role
+      if (role.id === 'role.admin' && !next.permissionCodes.includes('*')) {
+        next.permissionCodes = ['*', ...next.permissionCodes];
+      }
+    }
+    this.roles.set(id, next);
+    void this.persist();
+    return next;
+  }
+
+  deleteRole(id: string): void {
+    const role = this.roles.get(id);
+    if (!role) {
+      throw new NotFoundException(`Role ${id} not found`);
+    }
+    if (role.system) {
+      throw new BadRequestException(`Cannot delete system role "${role.code}"`);
+    }
+    this.roles.delete(id);
+    void this.persist();
   }
 
   resolvePermissions(roleIds: string[]): string[] {
@@ -127,5 +220,16 @@ export class RbacService implements OnModuleInit {
       if (granted.includes(wild)) return true;
     }
     return false;
+  }
+
+  private normalizePermissionCodes(codes: string[]): string[] {
+    const unique = [...new Set(codes.map((c) => c.trim()).filter(Boolean))];
+    for (const code of unique) {
+      if (code === '*') continue;
+      if (!this.permissions.has(code)) {
+        throw new BadRequestException(`Unknown permission "${code}"`);
+      }
+    }
+    return unique;
   }
 }

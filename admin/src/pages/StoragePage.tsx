@@ -18,7 +18,10 @@ export function StoragePage() {
 
   return (
     <div>
-      <PageHeader title="对象存储" description="对象存储元数据（不含内容体）" />
+      <PageHeader
+        title="对象存储"
+        description="只读元数据：对象由模块写入；服务端暂无上传/下载管理接口"
+      />
       <div className="toolbar">
         <div className="field">
           <label htmlFor="module">模块</label>

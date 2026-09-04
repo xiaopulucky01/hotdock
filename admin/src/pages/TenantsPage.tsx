@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { platformApi } from '../api'
+import { useAuth } from '../auth/AuthProvider'
 import {
   EmptyState,
   ErrorBanner,
@@ -11,6 +12,9 @@ import {
 } from '../components/ui'
 
 export function TenantsPage() {
+  const { hasPermission } = useAuth()
+  const canRead = hasPermission('platform.tenant.read')
+  const canCreate = hasPermission('platform.tenant.create')
   const qc = useQueryClient()
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
@@ -19,6 +23,7 @@ export function TenantsPage() {
   const query = useQuery({
     queryKey: ['tenants'],
     queryFn: platformApi.listTenants,
+    enabled: canRead,
   })
 
   const create = useMutation({
@@ -34,41 +39,69 @@ export function TenantsPage() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if (!canCreate) return
     create.mutate()
+  }
+
+  if (!canRead) {
+    return (
+      <div>
+        <PageHeader
+          title="租户"
+          description="租户由平台开户创建；员工账号归属租户，不可管理全部公司"
+        />
+        <EmptyState>当前账号无查看租户权限（需要 platform.tenant.read）</EmptyState>
+      </div>
+    )
   }
 
   return (
     <div>
-      <PageHeader title="租户" description="多租户管理" />
+      <PageHeader
+        title="租户"
+        description="公司/组织（平台开户）。员工账号归属租户，不能自行创建租户"
+      />
       <ErrorBanner error={query.error ?? error} />
 
-      <form className="card card-pad" onSubmit={onSubmit} style={{ marginBottom: '1rem' }}>
-        <div className="grid-2">
-          <div className="field">
-            <label htmlFor="code">编码</label>
-            <input
-              id="code"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              required
-              placeholder="acme"
-            />
+      {canCreate ? (
+        <form
+          className="card card-pad"
+          onSubmit={onSubmit}
+          style={{ marginBottom: '1rem' }}
+        >
+          <div style={{ marginBottom: '0.65rem' }}>
+            <strong>平台开户</strong>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+              仅拥有 platform.tenant.create 的平台管理员可创建
+            </p>
           </div>
-          <div className="field">
-            <label htmlFor="name">名称</label>
-            <input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              placeholder="示例公司"
-            />
+          <div className="grid-2">
+            <div className="field">
+              <label htmlFor="code">编码</label>
+              <input
+                id="code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                required
+                placeholder="acme"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="name">名称</label>
+              <input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                placeholder="示例公司"
+              />
+            </div>
           </div>
-        </div>
-        <button className="btn" type="submit" disabled={create.isPending}>
-          创建租户
-        </button>
-      </form>
+          <button className="btn" type="submit" disabled={create.isPending}>
+            创建租户
+          </button>
+        </form>
+      ) : null}
 
       {query.isLoading ? (
         <LoadingBlock />

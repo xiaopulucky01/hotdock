@@ -50,12 +50,16 @@ export function DashboardPage() {
               </div>
             </div>
             <div className="card card-pad stat-card">
-              <div className="stat-label">模块数量</div>
-              <div className="stat-value">{health?.modules.length ?? 0}</div>
+              <div className="stat-label">持久化</div>
+              <div className="stat-value">
+                <StatusBadge
+                  status={health?.checks?.persistence?.status ?? 'down'}
+                />
+              </div>
             </div>
             <div className="card card-pad stat-card">
-              <div className="stat-label">指标项数</div>
-              <div className="stat-value">{metricEntries.length}</div>
+              <div className="stat-label">模块数量</div>
+              <div className="stat-value">{health?.modules.length ?? 0}</div>
             </div>
           </div>
 

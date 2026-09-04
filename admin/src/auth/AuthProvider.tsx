@@ -9,7 +9,11 @@ import {
 } from 'react'
 import { authApi } from '../api'
 import {
+  clearStoredSession,
+  getStoredTenantId,
   getStoredToken,
+  setStoredRefreshToken,
+  setStoredTenantId,
   setStoredToken,
   setUnauthorizedHandler,
 } from '../api/client'
@@ -18,6 +22,7 @@ import type { AuthenticatedUser } from '../api/types'
 interface AuthContextValue {
   token: string | null
   user: AuthenticatedUser | null
+  tenantId: string | null
   loading: boolean
   login: (username: string, password: string, tenantId?: string) => Promise<void>
   register: (input: {
@@ -27,6 +32,7 @@ interface AuthContextValue {
     tenantId?: string
   }) => Promise<void>
   logout: () => Promise<void>
+  setTenantId: (tenantId: string | null) => void
   hasPermission: (code: string) => boolean
 }
 
@@ -34,18 +40,32 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => getStoredToken())
+  const [tenantId, setTenantIdState] = useState<string | null>(() =>
+    getStoredTenantId(),
+  )
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
   const [loading, setLoading] = useState(true)
 
   const clearSession = useCallback(() => {
-    setStoredToken(null)
+    clearStoredSession()
     setToken(null)
+    setTenantIdState(null)
     setUser(null)
+  }, [])
+
+  const setTenantId = useCallback((id: string | null) => {
+    const next = id?.trim() || null
+    setStoredTenantId(next)
+    setTenantIdState(next)
   }, [])
 
   const refreshMe = useCallback(async () => {
     const me = await authApi.me()
     setUser(me)
+    if (me.tenantId) {
+      setStoredTenantId(me.tenantId)
+      setTenantIdState(me.tenantId)
+    }
     return me
   }, [])
 
@@ -78,9 +98,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token, refreshMe, clearSession])
 
   const login = useCallback(
-    async (username: string, password: string, tenantId?: string) => {
-      const tokens = await authApi.login({ username, password, tenantId })
+    async (username: string, password: string, loginTenantId?: string) => {
+      const tokens = await authApi.login({
+        username,
+        password,
+        tenantId: loginTenantId,
+      })
       setStoredToken(tokens.accessToken)
+      setStoredRefreshToken(tokens.refreshToken ?? null)
+      if (loginTenantId) {
+        setStoredTenantId(loginTenantId)
+        setTenantIdState(loginTenantId)
+      }
       setToken(tokens.accessToken)
       await refreshMe()
     },
@@ -124,13 +153,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       token,
       user,
+      tenantId,
       loading,
       login,
       register,
       logout,
+      setTenantId,
       hasPermission,
     }),
-    [token, user, loading, login, register, logout, hasPermission],
+    [
+      token,
+      user,
+      tenantId,
+      loading,
+      login,
+      register,
+      logout,
+      setTenantId,
+      hasPermission,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

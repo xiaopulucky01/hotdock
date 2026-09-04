@@ -30,19 +30,20 @@ export class TenantController {
   constructor(private readonly tenants: TenantService) {}
 
   @Get()
-  @RequirePermissions('platform.user.read')
+  @RequirePermissions('platform.tenant.read')
   list() {
     return this.tenants.list();
   }
 
   @Get(':id')
-  @RequirePermissions('platform.user.read')
+  @RequirePermissions('platform.tenant.read')
   get(@Param('id') id: string) {
     return this.tenants.require(id);
   }
 
+  /** Platform onboarding only — employee accounts must not create tenants. */
   @Post()
-  @RequirePermissions('platform.user.write')
+  @RequirePermissions('platform.tenant.create')
   create(@Body() body: CreateTenantDto) {
     return this.tenants.create(body);
   }

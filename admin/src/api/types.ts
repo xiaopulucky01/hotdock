@@ -43,9 +43,56 @@ export interface AuthenticatedUser {
 
 export interface AuthTokens {
   accessToken: string
-  refreshToken?: string
+  refreshToken: string
   expiresIn: number
   tokenType: 'Bearer'
+}
+
+export interface FeatureFlagRecord {
+  enabled: boolean
+  /** Optional tenant allow-list; empty = all tenants */
+  tenants?: string[]
+  /** 0-100 rollout percentage */
+  percentage?: number
+}
+
+export interface ConfigKeySchema {
+  key: string
+  type: 'string' | 'number' | 'boolean' | 'json'
+  secret?: boolean
+  description?: string
+  default?: unknown
+}
+
+export interface DeadLetterEntry {
+  event: PlatformEvent
+  error: string
+  attempts: number
+  at: string
+}
+
+export interface WebhookEndpoint {
+  id: string
+  url: string
+  events: string[]
+  active: boolean
+  secret?: string
+  createdAt: string
+}
+
+export interface NotificationRecord {
+  id: string
+  channel: 'webhook' | 'log'
+  target: string
+  event: string
+  status: 'sent' | 'failed'
+  error?: string
+  at: string
+}
+
+export interface CacheStats {
+  ok: boolean
+  message?: string
 }
 
 export interface UserRecord {
@@ -112,10 +159,14 @@ export interface PlatformEvent {
 export interface JobInfo {
   name: string
   module: string
-  intervalMs: number
+  intervalMs?: number
+  cron?: string
+  retries?: number
   enabled?: boolean
   lastRunAt?: string
   lastError?: string
+  runCount?: number
+  failCount?: number
 }
 
 export interface StorageObjectMeta {
@@ -124,6 +175,7 @@ export interface StorageObjectMeta {
   contentType: string
   size: number
   createdAt: string
+  blobPath?: string
   metadata?: Record<string, string>
 }
 

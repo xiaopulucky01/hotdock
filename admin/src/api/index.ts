@@ -6,11 +6,16 @@ import type {
   AuditEntry,
   AuthenticatedUser,
   AuthTokens,
+  CacheStats,
+  ConfigKeySchema,
   Conversation,
   ConversationWithMessages,
+  DeadLetterEntry,
   ExtensionContribution,
+  FeatureFlagRecord,
   HealthCheck,
   JobInfo,
+  NotificationRecord,
   PermissionRecord,
   PlatformEvent,
   RegisteredModule,
@@ -18,6 +23,7 @@ import type {
   StorageObjectMeta,
   TenantRecord,
   UserRecord,
+  WebhookEndpoint,
 } from './types'
 
 export const authApi = {
@@ -65,17 +71,40 @@ export const platformApi = {
     return apiGet<PermissionRecord[]>(`/api/platform/rbac/permissions${q}`)
   },
   listRoles: () => apiGet<RoleRecord[]>('/api/platform/rbac/roles'),
+  createRole: (body: {
+    code: string
+    name: string
+    permissionCodes?: string[]
+  }) => apiPost<RoleRecord>('/api/platform/rbac/roles', body),
+  updateRole: (
+    id: string,
+    body: { name?: string; permissionCodes?: string[] },
+  ) =>
+    apiPatch<RoleRecord>(
+      `/api/platform/rbac/roles/${encodeURIComponent(id)}`,
+      body,
+    ),
+  deleteRole: (id: string) =>
+    apiDelete<{ ok: boolean }>(
+      `/api/platform/rbac/roles/${encodeURIComponent(id)}`,
+    ),
   listConfig: (prefix?: string) => {
     const q = prefix ? `?prefix=${encodeURIComponent(prefix)}` : ''
     return apiGet<Record<string, unknown>>(`/api/platform/config${q}`)
   },
+  listConfigSchemas: () =>
+    apiGet<ConfigKeySchema[]>('/api/platform/config/schemas'),
   setConfig: (key: string, value: unknown) =>
     apiPut(`/api/platform/config/${encodeURIComponent(key)}`, { value }),
   deleteConfig: (key: string) =>
     apiDelete(`/api/platform/config/${encodeURIComponent(key)}`),
   listFeatures: () => apiGet<Record<string, boolean>>('/api/platform/features'),
-  setFeature: (flag: string, enabled: boolean) =>
-    apiPut(`/api/platform/features/${encodeURIComponent(flag)}`, { enabled }),
+  listFeaturesDetailed: () =>
+    apiGet<Record<string, FeatureFlagRecord>>('/api/platform/features/detailed'),
+  setFeature: (
+    flag: string,
+    body: { enabled: boolean; tenants?: string[]; percentage?: number },
+  ) => apiPut(`/api/platform/features/${encodeURIComponent(flag)}`, body),
   listAudit: (opts?: { module?: string; actorId?: string; limit?: number }) => {
     const params = new URLSearchParams()
     if (opts?.module) params.set('module', opts.module)
@@ -91,10 +120,31 @@ export const platformApi = {
     const q = params.toString()
     return apiGet<PlatformEvent[]>(`/api/platform/events/recent${q ? `?${q}` : ''}`)
   },
+  listDeadLetters: (limit?: number) => {
+    const q = limit != null ? `?limit=${limit}` : ''
+    return apiGet<DeadLetterEntry[]>(`/api/platform/events/dead-letters${q}`)
+  },
   listJobs: (module?: string) => {
     const q = module ? `?module=${encodeURIComponent(module)}` : ''
     return apiGet<JobInfo[]>(`/api/platform/jobs${q}`)
   },
+  updateJob: (
+    module: string,
+    name: string,
+    body: {
+      enabled?: boolean
+      intervalMs?: number
+      cron?: string | null
+    },
+  ) =>
+    apiPatch<JobInfo>(
+      `/api/platform/jobs/${encodeURIComponent(module)}/${encodeURIComponent(name)}`,
+      body,
+    ),
+  runJob: (module: string, name: string) =>
+    apiPost<JobInfo>(
+      `/api/platform/jobs/${encodeURIComponent(module)}/${encodeURIComponent(name)}/run`,
+    ),
   listStorage: (module?: string) => {
     const q = module ? `?module=${encodeURIComponent(module)}` : ''
     return apiGet<StorageObjectMeta[]>(`/api/platform/storage${q}`)
@@ -104,6 +154,25 @@ export const platformApi = {
     apiGet<ExtensionContribution[]>(
       `/api/platform/extensions/${encodeURIComponent(slot)}`,
     ),
+  listWebhooks: () =>
+    apiGet<WebhookEndpoint[]>('/api/platform/notifications/webhooks'),
+  registerWebhook: (body: { url: string; events: string[]; secret?: string }) =>
+    apiPost<WebhookEndpoint>('/api/platform/notifications/webhooks', body),
+  removeWebhook: (id: string) =>
+    apiDelete<{ ok: boolean }>(
+      `/api/platform/notifications/webhooks/${encodeURIComponent(id)}`,
+    ),
+  recentNotifications: (limit?: number) => {
+    const q = limit != null ? `?limit=${limit}` : ''
+    return apiGet<NotificationRecord[]>(
+      `/api/platform/notifications/recent${q}`,
+    )
+  },
+  cacheStats: () => apiGet<CacheStats>('/api/platform/cache/stats'),
+  clearCache: (prefix?: string) => {
+    const q = prefix ? `?prefix=${encodeURIComponent(prefix)}` : ''
+    return apiDelete<{ ok: boolean }>(`/api/platform/cache${q}`)
+  },
 }
 
 export const aiChatApi = {

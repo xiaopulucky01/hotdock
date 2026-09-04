@@ -13,7 +13,6 @@ import {
   EmptyState,
   ErrorBanner,
   LoadingBlock,
-  PageHeader,
   formatDate,
 } from '../components/ui'
 
@@ -251,19 +250,6 @@ export function AiChatPage() {
 
   return (
     <div className="ai-chat-page">
-      <PageHeader
-        title="AI 对话"
-        description="热插拔 AI 对话模块 · 支持流式输出"
-        actions={
-          statusQuery.data ? (
-            <span className="muted">
-              提供商：<code>{statusQuery.data.provider}</code> · 模型：{' '}
-              <code>{statusQuery.data.model}</code>
-            </span>
-          ) : null
-        }
-      />
-
       {moduleDisabled ? (
         <div className="error-banner">
           AI 对话模块当前不可用（可能已禁用）。请到{' '}

@@ -1,4 +1,10 @@
-import { ApiError, getStoredToken, notifyUnauthorized } from './client'
+import {
+  ApiError,
+  getStoredTenantId,
+  getStoredToken,
+  notifyUnauthorized,
+  tryRefreshAccessToken,
+} from './client'
 import type { ChatMessage } from './types'
 
 export type ChatStreamHandlers = {
@@ -31,22 +37,41 @@ export async function streamChatMessage(
   handlers: ChatStreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const headers = new Headers({
-    'Content-Type': 'application/json',
-    Accept: 'text/event-stream',
-  })
-  const token = getStoredToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const buildHeaders = () => {
+    const headers = new Headers({
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    })
+    const token = getStoredToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    const tenantId = getStoredTenantId()
+    if (tenantId) headers.set('x-tenant-id', tenantId)
+    return headers
+  }
 
-  const res = await fetch(
-    `/api/ai-chat/conversations/${encodeURIComponent(conversationId)}/messages/stream`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ content }),
-      signal,
-    },
-  )
+  const url = `/api/ai-chat/conversations/${encodeURIComponent(conversationId)}/messages/stream`
+  const body = JSON.stringify({ content })
+
+  let res = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body,
+    signal,
+  })
+
+  if (res.status === 401) {
+    const refreshed = await tryRefreshAccessToken()
+    if (refreshed) {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body,
+        signal,
+      })
+    } else {
+      notifyUnauthorized()
+    }
+  }
 
   if (!res.ok) {
     const text = await res.text()

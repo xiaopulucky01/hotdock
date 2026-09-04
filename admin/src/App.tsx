@@ -5,6 +5,7 @@ import { AppShell } from './components/AppShell'
 import { RequireAuth } from './components/RequireAuth'
 import { AiChatPage } from './pages/AiChatPage'
 import { AuditPage } from './pages/AuditPage'
+import { CachePage } from './pages/CachePage'
 import { ConfigPage } from './pages/ConfigPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DemoPage } from './pages/DemoPage'
@@ -14,6 +15,7 @@ import { FeaturesPage } from './pages/FeaturesPage'
 import { JobsPage } from './pages/JobsPage'
 import { LoginPage } from './pages/LoginPage'
 import { ModulesPage } from './pages/ModulesPage'
+import { NotificationsPage } from './pages/NotificationsPage'
 import { RbacPage } from './pages/RbacPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { StoragePage } from './pages/StoragePage'
@@ -48,7 +50,9 @@ export default function App() {
                 <Route path="features" element={<FeaturesPage />} />
                 <Route path="audit" element={<AuditPage />} />
                 <Route path="events" element={<EventsPage />} />
+                <Route path="notifications" element={<NotificationsPage />} />
                 <Route path="jobs" element={<JobsPage />} />
+                <Route path="cache" element={<CachePage />} />
                 <Route path="storage" element={<StoragePage />} />
                 <Route path="extensions" element={<ExtensionsPage />} />
                 <Route path="ai-chat" element={<AiChatPage />} />

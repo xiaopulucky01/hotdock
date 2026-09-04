@@ -42,6 +42,15 @@ export function ConfigPage() {
     queryFn: () => platformApi.listConfig(prefix || undefined),
   })
 
+  const schemasQuery = useQuery({
+    queryKey: ['config-schemas'],
+    queryFn: platformApi.listConfigSchemas,
+  })
+
+  const schemaMap = new Map(
+    (schemasQuery.data ?? []).map((s) => [s.key, s]),
+  )
+
   const aiConfigQuery = useQuery({
     queryKey: ['config', 'ai-chat.'],
     queryFn: () => platformApi.listConfig('ai-chat.'),
@@ -132,7 +141,7 @@ export function ConfigPage() {
     <div>
       <PageHeader
         title="配置"
-        description="命名空间配置键值（JSON 或纯字符串）"
+        description="命名空间配置键值；密钥由服务端脱敏显示"
       />
       <ErrorBanner error={query.error ?? error} />
 
@@ -273,29 +282,50 @@ export function ConfigPage() {
               <thead>
                 <tr>
                   <th>键</th>
+                  <th>类型</th>
                   <th>值</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {entries.map(([k, v]) => (
-                  <tr key={k}>
-                    <td className="mono">{k}</td>
-                    <td className="mono" style={{ maxWidth: 420, wordBreak: 'break-all' }}>
-                      {JSON.stringify(v)}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-danger"
-                        disabled={delMut.isPending}
-                        onClick={() => delMut.mutate(k)}
+                {entries.map(([k, v]) => {
+                  const schema = schemaMap.get(k)
+                  const isSecret = schema?.secret || v === '***'
+                  return (
+                    <tr key={k}>
+                      <td className="mono">{k}</td>
+                      <td className="mono muted">{schema?.type ?? '—'}</td>
+                      <td
+                        className="mono"
+                        style={{ maxWidth: 420, wordBreak: 'break-all' }}
                       >
-                        删除
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        {isSecret && v === '***' ? (
+                          <span className="muted">***</span>
+                        ) : (
+                          JSON.stringify(v)
+                        )}
+                        {schema?.secret ? (
+                          <span
+                            className="badge badge-warn"
+                            style={{ marginLeft: '0.4rem' }}
+                          >
+                            密钥
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          disabled={delMut.isPending}
+                          onClick={() => delMut.mutate(k)}
+                        >
+                          删除
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

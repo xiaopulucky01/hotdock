@@ -39,6 +39,12 @@
   flex: 1;
   overflow-y: auto;
   padding: 0.75rem 0.75rem 1.5rem;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Legacy Edge */
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  display: none; /* Chrome / Safari */
 }
 
 .nav-group {
@@ -90,6 +96,7 @@
 
 .sidebar-user {
   min-width: 0;
+  flex: 1;
 }
 
 .sidebar-footer .user-name {
@@ -108,8 +115,62 @@
   white-space: nowrap;
 }
 
+.sidebar-tenant {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  min-width: 0;
+}
+
+.sidebar-tenant-label {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--sidebar-muted);
+}
+
+.sidebar-tenant-select {
+  min-width: 0;
+  flex: 1;
+  max-width: 7.5rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sidebar-muted);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.sidebar-tenant-select:hover,
+.sidebar-tenant-select:focus {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.22);
+  outline: none;
+}
+
+.sidebar-tenant-select option {
+  color: #111;
+  background: #fff;
+}
+
+.sidebar-tenant-readonly {
+  cursor: default;
+}
+
+.sidebar-tenant-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--sidebar-muted);
+}
+
 .sidebar-logout {
   flex-shrink: 0;
+  align-self: flex-start;
   background: transparent;
   border-color: rgba(255, 255, 255, 0.14);
   color: var(--sidebar-muted);
@@ -450,10 +511,6 @@ table.data tr:last-child td {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-}
-
-.ai-chat-page .page-header {
-  flex-shrink: 0;
 }
 
 .chat-layout {

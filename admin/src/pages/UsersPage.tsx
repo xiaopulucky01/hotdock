@@ -19,7 +19,10 @@ export function UsersPage() {
 
   return (
     <div>
-      <PageHeader title="用户" description="平台用户列表" />
+      <PageHeader
+        title="用户"
+        description="登录账号；归属某个租户，通过角色获得权限"
+      />
       <div className="toolbar">
         <div className="field">
           <label htmlFor="tenantFilter">按租户过滤</label>
