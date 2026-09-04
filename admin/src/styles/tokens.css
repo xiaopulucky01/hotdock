@@ -1,0 +1,83 @@
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --bg: #f0f2f5;
+  --bg-elevated: #ffffff;
+  --bg-muted: #e8ebef;
+  --border: #d5dbe3;
+  --border-strong: #b8c2ce;
+
+  --text: #1a2332;
+  --text-secondary: #5a6a7e;
+  --text-muted: #8a97a8;
+
+  --sidebar-bg: #15202b;
+  --sidebar-text: #c5d0dc;
+  --sidebar-muted: #7a8a9a;
+  --sidebar-active: #1e8a6e;
+  --sidebar-hover: #1c2c3a;
+
+  --accent: #1e8a6e;
+  --accent-hover: #177a60;
+  --accent-soft: #e6f5f0;
+
+  --danger: #c0392b;
+  --danger-soft: #fdecea;
+  --warning: #b7791f;
+  --warning-soft: #fef6e7;
+  --info: #2b6cb0;
+  --info-soft: #ebf3fb;
+  --success: #1e8a6e;
+  --success-soft: #e6f5f0;
+
+  --radius: 8px;
+  --radius-sm: 4px;
+  --shadow: 0 1px 2px rgba(26, 35, 50, 0.06), 0 4px 12px rgba(26, 35, 50, 0.04);
+  --sidebar-width: 240px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
