@@ -62,26 +62,25 @@ export function AppShell() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div className="user-name">{user?.username ?? '—'}</div>
-          <div className="user-meta">
-            {(user?.roles ?? []).join(', ') || '暂无角色'}
+          <div className="sidebar-user">
+            <div className="user-name">{user?.username ?? '—'}</div>
+            <div className="user-meta">
+              {(user?.roles ?? []).join(', ') || '暂无角色'}
+            </div>
           </div>
-        </div>
-      </aside>
-      <div className="main">
-        <header className="topbar">
-          <div className="muted">平台管理</div>
           <button
             type="button"
-            className="btn btn-ghost btn-sm"
+            className="btn btn-sm sidebar-logout"
             onClick={async () => {
               await logout()
               navigate('/login', { replace: true })
             }}
           >
-            退出登录
+            退出
           </button>
-        </header>
+        </div>
+      </aside>
+      <div className="main">
         <div className="page">
           <Outlet />
         </div>

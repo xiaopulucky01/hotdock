@@ -12,6 +12,8 @@ export interface AuthTokenPayload {
   username: string;
   tenantId?: string;
   roles: string[];
+  type: 'access' | 'refresh';
+  jti: string;
   iat?: number;
   exp?: number;
 }
@@ -24,7 +26,7 @@ export interface LoginCredentials {
 
 export interface AuthTokens {
   accessToken: string;
-  refreshToken?: string;
+  refreshToken: string;
   expiresIn: number;
   tokenType: 'Bearer';
 }

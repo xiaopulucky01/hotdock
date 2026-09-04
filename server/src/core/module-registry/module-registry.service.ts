@@ -2,7 +2,9 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
+import * as semver from 'semver';
 import {
   ModuleManifest,
   PluginLifecycle,
@@ -12,17 +14,62 @@ import {
 import { EventBusService } from '../event-bus/event-bus.service';
 import { RbacService } from '../rbac/rbac.service';
 import { FeatureFlagService } from '../feature-flag/feature-flag.service';
+import { PersistenceService } from '../persistence/persistence.service';
+import { ExtensionService } from '../extension/extension.service';
+import { JobSchedulerService } from '../job/job-scheduler.service';
+import { AuditService } from '../audit/audit.service';
+
+interface PersistedModuleState {
+  status: RegisteredModule['status'];
+  enabledAt?: string;
+  error?: string;
+}
 
 @Injectable()
-export class ModuleRegistryService {
+export class ModuleRegistryService implements OnModuleInit {
   private readonly modules = new Map<string, RegisteredModule>();
   private readonly lifecycles = new Map<string, PluginLifecycle>();
+  private persisted = new Map<string, PersistedModuleState>();
+  private loaded = false;
 
   constructor(
     private readonly events: EventBusService,
     private readonly rbac: RbacService,
     private readonly features: FeatureFlagService,
+    private readonly persistence: PersistenceService,
+    private readonly extensions: ExtensionService,
+    private readonly jobs: JobSchedulerService,
+    private readonly audit: AuditService,
   ) {}
+
+  async onModuleInit() {
+    const data = await this.persistence.load<
+      Record<string, PersistedModuleState>
+    >('modules');
+    if (data) {
+      this.persisted = new Map(Object.entries(data));
+    }
+    this.loaded = true;
+  }
+
+  private async persistStates() {
+    const out: Record<string, PersistedModuleState> = {};
+    for (const [name, mod] of this.modules.entries()) {
+      out[name] = {
+        status: mod.status,
+        enabledAt: mod.enabledAt
+          ? new Date(mod.enabledAt).toISOString()
+          : undefined,
+        error: mod.error,
+      };
+    }
+    // Keep states for modules not yet re-registered this boot
+    for (const [name, state] of this.persisted.entries()) {
+      if (!out[name]) out[name] = state;
+    }
+    this.persisted = new Map(Object.entries(out));
+    await this.persistence.save('modules', out);
+  }
 
   register(manifest: ModuleManifest, lifecycle?: PluginLifecycle): RegisteredModule {
     this.validateManifest(manifest);
@@ -32,10 +79,19 @@ export class ModuleRegistryService {
       );
     }
 
+    const saved = this.persisted.get(manifest.name);
+    let status: RegisteredModule['status'] = 'registered';
+    if (saved?.status === 'disabled') status = 'disabled';
+    else if (saved?.status === 'enabled' || saved?.status === 'installed') {
+      // Already installed in a prior boot — skip re-install on auto-enable
+      status = 'installed';
+    }
     const record: RegisteredModule = {
       manifest,
-      status: 'registered',
+      status,
       registeredAt: new Date(),
+      enabledAt: saved?.enabledAt ? new Date(saved.enabledAt) : undefined,
+      error: saved?.error,
     };
     this.modules.set(manifest.name, record);
     if (lifecycle) {
@@ -57,6 +113,7 @@ export class ModuleRegistryService {
       payload: { name: manifest.name, version: manifest.version },
       occurredAt: new Date(),
     });
+    void this.persistStates();
 
     return record;
   }
@@ -66,17 +123,26 @@ export class ModuleRegistryService {
     this.assertDependencies(mod.manifest);
     await this.lifecycles.get(name)?.onInstall?.();
     mod.status = 'installed';
+    await this.persistStates();
     void this.events.emit({
       name: PLATFORM_EVENTS.MODULE_INSTALLED,
       source: 'platform.module-registry',
       payload: { name },
       occurredAt: new Date(),
     });
+    this.audit.record({
+      module: 'platform.module-registry',
+      action: 'module.install',
+      resource: name,
+    });
     return mod;
   }
 
   async enable(name: string): Promise<RegisteredModule> {
     const mod = this.require(name);
+    if (mod.status === 'enabled') {
+      return mod;
+    }
     this.assertDependencies(mod.manifest);
     if (mod.status === 'registered') {
       await this.install(name);
@@ -85,11 +151,17 @@ export class ModuleRegistryService {
     mod.status = 'enabled';
     mod.enabledAt = new Date();
     mod.error = undefined;
+    await this.persistStates();
     void this.events.emit({
       name: PLATFORM_EVENTS.MODULE_ENABLED,
       source: 'platform.module-registry',
       payload: { name },
       occurredAt: new Date(),
+    });
+    this.audit.record({
+      module: 'platform.module-registry',
+      action: 'module.enable',
+      resource: name,
     });
     return mod;
   }
@@ -98,12 +170,20 @@ export class ModuleRegistryService {
     const mod = this.require(name);
     this.assertNoDependents(name);
     await this.lifecycles.get(name)?.onDisable?.();
+    this.jobs.unregisterModule(name);
+    this.extensions.removeModule(name);
     mod.status = 'disabled';
+    await this.persistStates();
     void this.events.emit({
       name: PLATFORM_EVENTS.MODULE_DISABLED,
       source: 'platform.module-registry',
       payload: { name },
       occurredAt: new Date(),
+    });
+    this.audit.record({
+      module: 'platform.module-registry',
+      action: 'module.disable',
+      resource: name,
     });
     return mod;
   }
@@ -117,11 +197,18 @@ export class ModuleRegistryService {
     await this.lifecycles.get(name)?.onUninstall?.();
     this.modules.delete(name);
     this.lifecycles.delete(name);
+    this.persisted.delete(name);
+    await this.persistStates();
     void this.events.emit({
       name: PLATFORM_EVENTS.MODULE_UNINSTALLED,
       source: 'platform.module-registry',
       payload: { name },
       occurredAt: new Date(),
+    });
+    this.audit.record({
+      module: 'platform.module-registry',
+      action: 'module.uninstall',
+      resource: name,
     });
   }
 
@@ -135,6 +222,13 @@ export class ModuleRegistryService {
 
   isEnabled(name: string): boolean {
     return this.modules.get(name)?.status === 'enabled';
+  }
+
+  /** Whether a previously persisted module should auto-enable on boot */
+  shouldAutoEnable(name: string): boolean {
+    const saved = this.persisted.get(name);
+    // Auto-enable unless explicitly disabled / errored in a prior boot
+    return saved?.status !== 'disabled' && saved?.status !== 'error';
   }
 
   private require(name: string): RegisteredModule {
@@ -151,6 +245,11 @@ export class ModuleRegistryService {
         'Manifest requires name, version, displayName',
       );
     }
+    if (!semver.valid(manifest.version)) {
+      throw new BadRequestException(
+        `Invalid semver version "${manifest.version}" for module "${manifest.name}"`,
+      );
+    }
   }
 
   private assertDependencies(manifest: ModuleManifest) {
@@ -160,6 +259,11 @@ export class ModuleRegistryService {
       if (!target || target.status !== 'enabled') {
         throw new BadRequestException(
           `Dependency "${dep.name}" is missing or not enabled for module "${manifest.name}"`,
+        );
+      }
+      if (dep.version && !semver.satisfies(target.manifest.version, dep.version)) {
+        throw new BadRequestException(
+          `Dependency "${dep.name}@${target.manifest.version}" does not satisfy "${dep.version}" for module "${manifest.name}"`,
         );
       }
     }

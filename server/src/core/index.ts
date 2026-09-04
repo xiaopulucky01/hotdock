@@ -13,4 +13,7 @@ export { UserService } from './user/user.service';
 export { RbacService } from './rbac/rbac.service';
 export { TenantService } from './tenant/tenant.service';
 export { ObservabilityService } from './observability/observability.service';
+export { PersistenceService } from './persistence/persistence.service';
+export { CacheService } from './cache/cache.service';
+export { NotificationService } from './notification/notification.service';
 export * from './gateway';

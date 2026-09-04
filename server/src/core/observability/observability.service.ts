@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRegistryService } from '../module-registry/module-registry.service';
+import { PersistenceService } from '../persistence/persistence.service';
 
 export interface HealthCheck {
   status: 'ok' | 'degraded' | 'down';
@@ -14,21 +15,42 @@ export class ObservabilityService {
   private readonly startedAt = Date.now();
   private readonly metrics = new Map<string, number>();
 
-  constructor(private readonly registry: ModuleRegistryService) {}
+  constructor(
+    private readonly registry: ModuleRegistryService,
+    private readonly persistence: PersistenceService,
+  ) {}
 
-  health(): HealthCheck {
+  async health(): Promise<HealthCheck> {
     const modules = this.registry.getModules().map((m) => ({
       name: m.manifest.name,
       status: m.status,
     }));
     const errored = modules.filter((m) => m.status === 'error');
-    return {
-      status: errored.length ? 'degraded' : 'ok',
-      checks: {
-        core: { status: 'ok' },
-        eventBus: { status: 'ok' },
-        registry: { status: 'ok', detail: `${modules.length} modules` },
+
+    let persistenceOk = true;
+    let persistenceDetail: string | undefined;
+    try {
+      const cols = await this.persistence.listCollections();
+      persistenceDetail = `${cols.length} collections`;
+    } catch (err) {
+      persistenceOk = false;
+      persistenceDetail = (err as Error).message;
+    }
+
+    const checks: HealthCheck['checks'] = {
+      core: { status: 'ok' },
+      eventBus: { status: 'ok' },
+      registry: { status: 'ok', detail: `${modules.length} modules` },
+      persistence: {
+        status: persistenceOk ? 'ok' : 'down',
+        detail: persistenceDetail,
       },
+    };
+
+    const down = Object.values(checks).some((c) => c.status === 'down');
+    return {
+      status: down ? 'down' : errored.length ? 'degraded' : 'ok',
+      checks,
       uptimeSec: Math.floor((Date.now() - this.startedAt) / 1000),
       modules,
     };

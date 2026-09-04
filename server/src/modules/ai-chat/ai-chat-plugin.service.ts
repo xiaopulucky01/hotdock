@@ -23,7 +23,9 @@ export class AiChatPluginService implements OnModuleInit, PluginLifecycle {
 
   async onModuleInit() {
     this.registry.register(AI_CHAT_MANIFEST, this);
-    await this.registry.enable(AI_CHAT_MANIFEST.name);
+    if (this.registry.shouldAutoEnable(AI_CHAT_MANIFEST.name)) {
+      await this.registry.enable(AI_CHAT_MANIFEST.name);
+    }
   }
 
   async onInstall() {
@@ -31,6 +33,16 @@ export class AiChatPluginService implements OnModuleInit, PluginLifecycle {
     const envBase = process.env.AI_CHAT_BASE_URL;
     const envModel = process.env.AI_CHAT_MODEL;
     const envProvider = process.env.AI_CHAT_PROVIDER;
+
+    this.config.registerSchema([
+      { key: 'ai-chat.provider', type: 'string', default: 'mock' },
+      { key: 'ai-chat.apiKey', type: 'string', secret: true },
+      { key: 'ai-chat.baseUrl', type: 'string' },
+      { key: 'ai-chat.model', type: 'string' },
+      { key: 'ai-chat.systemPrompt', type: 'string' },
+      { key: 'ai-chat.temperature', type: 'number', default: 0.7 },
+      { key: 'ai-chat.maxTokens', type: 'number', default: 1024 },
+    ]);
 
     this.config.setMany({
       'ai-chat.provider':
@@ -44,7 +56,6 @@ export class AiChatPluginService implements OnModuleInit, PluginLifecycle {
       'ai-chat.maxTokens': 1024,
     });
 
-    // Grant chat permissions to the default user role
     const userRole = this.rbac.getRole('role.user');
     if (userRole) {
       const codes = new Set([

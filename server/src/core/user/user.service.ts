@@ -1,4 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
+import { PersistenceService } from '../persistence/persistence.service';
+import { EventBusService } from '../event-bus/event-bus.service';
+import { PLATFORM_EVENTS } from '../contracts';
 
 export interface UserRecord {
   id: string;
@@ -8,8 +16,8 @@ export interface UserRecord {
   tenantId?: string;
   roleIds: string[];
   active: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateUserInput {
@@ -21,27 +29,62 @@ export interface CreateUserInput {
 }
 
 @Injectable()
-export class UserService {
+export class UserService implements OnModuleInit {
   private readonly users = new Map<string, UserRecord>();
+  private loaded = false;
 
-  constructor() {
-    // Bootstrap admin for local/dev platforms
-    this.create({
-      username: 'admin',
-      password: 'admin123',
-      email: 'admin@platform.local',
-      roleIds: ['role.admin'],
-    });
+  constructor(
+    private readonly persistence: PersistenceService,
+    private readonly events: EventBusService,
+  ) {}
+
+  async onModuleInit() {
+    await this.ensureLoaded();
   }
 
-  create(input: CreateUserInput): UserRecord {
+  private async ensureLoaded() {
+    if (this.loaded) return;
+    this.loaded = true;
+    const rows = await this.persistence.load<UserRecord[]>('users');
+    if (rows?.length) {
+      for (const u of rows) this.users.set(u.id, this.normalize(u));
+    } else {
+      await this.create({
+        username: 'admin',
+        password: 'admin123',
+        email: 'admin@platform.local',
+        roleIds: ['role.admin'],
+      });
+    }
+  }
+
+  private normalize(u: UserRecord): UserRecord {
+    return {
+      ...u,
+      createdAt:
+        typeof u.createdAt === 'string'
+          ? u.createdAt
+          : new Date(u.createdAt).toISOString(),
+      updatedAt:
+        typeof u.updatedAt === 'string'
+          ? u.updatedAt
+          : new Date(u.updatedAt).toISOString(),
+    };
+  }
+
+  private async persist() {
+    await this.persistence.save('users', [...this.users.values()]);
+  }
+
+  async create(input: CreateUserInput): Promise<UserRecord> {
+    await this.ensureLoaded();
     const id = `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const now = new Date();
+    const now = new Date().toISOString();
     const record: UserRecord = {
       id,
       username: input.username,
       email: input.email,
-      passwordHash: this.hash(input.password),
+      passwordHash: await this.hash(input.password),
       tenantId: input.tenantId,
       roleIds: input.roleIds ?? ['role.user'],
       active: true,
@@ -49,6 +92,14 @@ export class UserService {
       updatedAt: now,
     };
     this.users.set(id, record);
+    await this.persist();
+    void this.events.emit({
+      name: PLATFORM_EVENTS.USER_CREATED,
+      source: 'platform.user',
+      payload: { id: record.id, username: record.username },
+      tenantId: record.tenantId,
+      occurredAt: new Date(),
+    });
     return record;
   }
 
@@ -65,25 +116,48 @@ export class UserService {
     return tenantId ? all.filter((u) => u.tenantId === tenantId) : all;
   }
 
-  update(
+  async update(
     id: string,
-    patch: Partial<Pick<UserRecord, 'email' | 'roleIds' | 'active'>>,
-  ): UserRecord {
+    patch: Partial<Pick<UserRecord, 'email' | 'roleIds' | 'active' | 'tenantId'>>,
+  ): Promise<UserRecord> {
+    await this.ensureLoaded();
     const user = this.users.get(id);
     if (!user) {
       throw new NotFoundException(`User ${id} not found`);
     }
-    const next = { ...user, ...patch, updatedAt: new Date() };
+    const next = {
+      ...user,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
     this.users.set(id, next);
+    await this.persist();
+    void this.events.emit({
+      name: PLATFORM_EVENTS.USER_UPDATED,
+      source: 'platform.user',
+      payload: { id },
+      tenantId: next.tenantId,
+      occurredAt: new Date(),
+    });
     return next;
   }
 
-  verifyPassword(user: UserRecord, password: string): boolean {
-    return user.passwordHash === this.hash(password);
+  async verifyPassword(user: UserRecord, password: string): Promise<boolean> {
+    if (user.passwordHash.startsWith('plain:')) {
+      const ok = user.passwordHash === `plain:${password}`;
+      if (ok) {
+        // Upgrade legacy hash on successful login
+        user.passwordHash = await this.hash(password);
+        user.updatedAt = new Date().toISOString();
+        this.users.set(user.id, user);
+        await this.persist();
+      }
+      return ok;
+    }
+    return bcrypt.compare(password, user.passwordHash);
   }
 
-  /** Placeholder hash — replace with bcrypt/argon2 in production */
-  private hash(value: string): string {
-    return `plain:${value}`;
+  private async hash(value: string): Promise<string> {
+    return bcrypt.hash(value, 10);
   }
 }

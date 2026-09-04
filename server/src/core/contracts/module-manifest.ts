@@ -63,7 +63,16 @@ export interface ModuleManifest {
 export interface RegisteredModule {
   manifest: ModuleManifest;
   status: ModuleStatus;
-  registeredAt: Date;
-  enabledAt?: Date;
+  registeredAt: Date | string;
+  enabledAt?: Date | string;
   error?: string;
+}
+
+/** Config key schema registered by modules */
+export interface ConfigKeySchema {
+  key: string;
+  type: 'string' | 'number' | 'boolean' | 'json';
+  secret?: boolean;
+  description?: string;
+  default?: unknown;
 }

@@ -1,21 +1,24 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
-import { AuthGuard, RequirePermissions, PermissionsGuard } from '../../core/gateway';
-import { ModuleRegistryService } from '../../core/module-registry/module-registry.service';
+import {
+  AuthGuard,
+  ModuleEnabledGuard,
+  PermissionsGuard,
+  Public,
+  RequireModule,
+  RequirePermissions,
+} from '../../core/gateway';
 import { DemoPluginService } from './demo-plugin.service';
 import { DEMO_MANIFEST } from './demo.manifest';
 
 @Controller('api/demo')
+@RequireModule(DEMO_MANIFEST.name)
+@UseGuards(ModuleEnabledGuard)
 export class DemoController {
-  constructor(
-    private readonly demo: DemoPluginService,
-    private readonly registry: ModuleRegistryService,
-  ) {}
+  constructor(private readonly demo: DemoPluginService) {}
 
+  @Public()
   @Get('hello')
   hello() {
-    if (!this.registry.isEnabled(DEMO_MANIFEST.name)) {
-      return { enabled: false, message: 'Demo module is disabled' };
-    }
     return { enabled: true, message: this.demo.greeting() };
   }
 

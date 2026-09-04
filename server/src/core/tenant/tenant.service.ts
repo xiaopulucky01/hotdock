@@ -1,31 +1,54 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { PersistenceService } from '../persistence/persistence.service';
 
 export interface TenantRecord {
   id: string;
   code: string;
   name: string;
   active: boolean;
-  createdAt: Date;
+  createdAt: string;
 }
 
 @Injectable()
-export class TenantService {
+export class TenantService implements OnModuleInit {
   private readonly tenants = new Map<string, TenantRecord>();
+  private loaded = false;
 
-  constructor() {
-    this.create({ code: 'default', name: 'Default Tenant' });
+  constructor(private readonly persistence: PersistenceService) {}
+
+  async onModuleInit() {
+    await this.ensureLoaded();
   }
 
-  create(input: { code: string; name: string }): TenantRecord {
+  private async ensureLoaded() {
+    if (this.loaded) return;
+    this.loaded = true;
+    const rows = await this.persistence.load<TenantRecord[]>('tenants');
+    if (rows?.length) {
+      for (const t of rows) this.tenants.set(t.id, t);
+    } else {
+      await this.create({ code: 'default', name: 'Default Tenant' });
+    }
+  }
+
+  private async persist() {
+    await this.persistence.save('tenants', [...this.tenants.values()]);
+  }
+
+  async create(input: { code: string; name: string }): Promise<TenantRecord> {
+    await this.ensureLoaded();
+    const existing = this.findByCode(input.code);
+    if (existing) return existing;
     const id = `tenant_${input.code}`;
     const record: TenantRecord = {
       id,
       code: input.code,
       name: input.name,
       active: true,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
     };
     this.tenants.set(id, record);
+    await this.persist();
     return record;
   }
 

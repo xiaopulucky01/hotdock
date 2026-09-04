@@ -33,6 +33,8 @@ export const authApi = {
       '/api/platform/auth/register',
       body,
     ),
+  refresh: (refreshToken: string) =>
+    apiPost<AuthTokens>('/api/platform/auth/refresh', { refreshToken }),
   logout: () => apiPost<{ ok: boolean }>('/api/platform/auth/logout'),
   me: () => apiGet<AuthenticatedUser>('/api/platform/auth/me'),
 }

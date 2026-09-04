@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { PersistenceService } from '../persistence/persistence.service';
 
 export interface PermissionRecord {
   code: string;
@@ -19,8 +20,29 @@ export interface RoleRecord {
 export class RbacService implements OnModuleInit {
   private readonly permissions = new Map<string, PermissionRecord>();
   private readonly roles = new Map<string, RoleRecord>();
+  private loaded = false;
 
-  onModuleInit() {
+  constructor(private readonly persistence: PersistenceService) {}
+
+  async onModuleInit() {
+    await this.ensureLoaded();
+    this.seedDefaults();
+  }
+
+  private async ensureLoaded() {
+    if (this.loaded) return;
+    const data = await this.persistence.load<{
+      permissions: PermissionRecord[];
+      roles: RoleRecord[];
+    }>('rbac');
+    if (data) {
+      for (const p of data.permissions ?? []) this.permissions.set(p.code, p);
+      for (const r of data.roles ?? []) this.roles.set(r.id, r);
+    }
+    this.loaded = true;
+  }
+
+  private seedDefaults() {
     this.registerPermissions('platform', [
       { code: 'platform.user.read', name: '查看用户' },
       { code: 'platform.user.write', name: '管理用户' },
@@ -29,20 +51,30 @@ export class RbacService implements OnModuleInit {
       { code: 'platform.audit.read', name: '查看审计' },
     ]);
 
-    this.upsertRole({
-      id: 'role.admin',
-      code: 'admin',
-      name: '管理员',
-      permissionCodes: ['*'],
-      system: true,
-    });
+    if (!this.roles.has('role.admin')) {
+      this.upsertRole({
+        id: 'role.admin',
+        code: 'admin',
+        name: '管理员',
+        permissionCodes: ['*'],
+        system: true,
+      });
+    }
+    if (!this.roles.has('role.user')) {
+      this.upsertRole({
+        id: 'role.user',
+        code: 'user',
+        name: '普通用户',
+        permissionCodes: ['platform.user.read'],
+        system: true,
+      });
+    }
+  }
 
-    this.upsertRole({
-      id: 'role.user',
-      code: 'user',
-      name: '普通用户',
-      permissionCodes: ['platform.user.read'],
-      system: true,
+  private async persist() {
+    await this.persistence.save('rbac', {
+      permissions: [...this.permissions.values()],
+      roles: [...this.roles.values()],
     });
   }
 
@@ -53,10 +85,12 @@ export class RbacService implements OnModuleInit {
     for (const def of defs) {
       this.permissions.set(def.code, { ...def, module });
     }
+    void this.persist();
   }
 
   upsertRole(role: RoleRecord) {
     this.roles.set(role.id, role);
+    void this.persist();
   }
 
   getRole(id: string): RoleRecord | undefined {
@@ -87,7 +121,6 @@ export class RbacService implements OnModuleInit {
   hasPermission(granted: string[], required: string): boolean {
     if (granted.includes('*')) return true;
     if (granted.includes(required)) return true;
-    // wildcard: ecommerce.*
     const parts = required.split('.');
     for (let i = parts.length - 1; i > 0; i--) {
       const wild = `${parts.slice(0, i).join('.')}.*`;

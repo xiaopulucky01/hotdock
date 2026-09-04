@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PersistenceModule } from './persistence/persistence.module';
 import { EventBusModule } from './event-bus/event-bus.module';
 import { JobModule } from './job/job.module';
 import { StorageModule } from './storage/storage.module';
@@ -13,6 +14,8 @@ import { ModuleRegistryModule } from './module-registry/module-registry.module';
 import { AuditModule } from './audit/audit.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { GatewayModule } from './gateway/gateway.module';
+import { CacheModule } from './cache/cache.module';
+import { NotificationModule } from './notification/notification.module';
 
 /**
  * Platform Core — import this once in AppModule.
@@ -20,6 +23,9 @@ import { GatewayModule } from './gateway/gateway.module';
  */
 @Module({
   imports: [
+    PersistenceModule,
+    CacheModule,
+    NotificationModule,
     EventBusModule,
     JobModule,
     StorageModule,
@@ -36,6 +42,9 @@ import { GatewayModule } from './gateway/gateway.module';
     GatewayModule,
   ],
   exports: [
+    PersistenceModule,
+    CacheModule,
+    NotificationModule,
     EventBusModule,
     JobModule,
     StorageModule,

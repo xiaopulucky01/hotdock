@@ -1,13 +1,31 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { UserService } from './user.service';
+import {
+  AuthGuard,
+  CurrentTenant,
+  PermissionsGuard,
+  RequirePermissions,
+} from '../gateway';
 
 @Controller('api/platform/users')
+@UseGuards(AuthGuard, PermissionsGuard)
 export class UserController {
   constructor(private readonly users: UserService) {}
 
   @Get()
-  list(@Query('tenantId') tenantId?: string) {
-    return this.users.list(tenantId).map((u) => ({
+  @RequirePermissions('platform.user.read')
+  list(
+    @Query('tenantId') tenantId?: string,
+    @CurrentTenant() ctxTenant?: string,
+  ) {
+    const scope = tenantId ?? ctxTenant;
+    return this.users.list(scope).map((u) => ({
       id: u.id,
       username: u.username,
       email: u.email,
@@ -19,6 +37,7 @@ export class UserController {
   }
 
   @Get(':id')
+  @RequirePermissions('platform.user.read')
   get(@Param('id') id: string) {
     const u = this.users.findById(id);
     if (!u) {

@@ -7,33 +7,30 @@ import {
   Patch,
   Post,
   Res,
-  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
   AuthGuard,
   CurrentUser,
+  ModuleEnabledGuard,
   PermissionsGuard,
+  RequireModule,
   RequirePermissions,
 } from '../../core/gateway';
 import type { AuthenticatedUser } from '../../core/contracts';
-import { ModuleRegistryService } from '../../core/module-registry/module-registry.service';
 import { AI_CHAT_MANIFEST } from './ai-chat.manifest';
 import { AiChatService } from './ai-chat.service';
 
 @Controller('api/ai-chat')
-@UseGuards(AuthGuard, PermissionsGuard)
+@RequireModule(AI_CHAT_MANIFEST.name)
+@UseGuards(AuthGuard, PermissionsGuard, ModuleEnabledGuard)
 export class AiChatController {
-  constructor(
-    private readonly chat: AiChatService,
-    private readonly registry: ModuleRegistryService,
-  ) {}
+  constructor(private readonly chat: AiChatService) {}
 
   @Get('status')
   @RequirePermissions('ai-chat.read')
   status() {
-    this.assertEnabled();
     return { enabled: true, ...this.chat.providerStatus() };
   }
 
@@ -42,7 +39,6 @@ export class AiChatController {
   probeModels(
     @Body() body: { baseUrl?: string; apiKey?: string },
   ) {
-    this.assertEnabled();
     return this.chat.probeModels(body?.baseUrl ?? '', body?.apiKey);
   }
 
@@ -52,7 +48,6 @@ export class AiChatController {
     @Body()
     body: { baseUrl?: string; apiKey?: string; model?: string },
   ) {
-    this.assertEnabled();
     return this.chat.configureProvider({
       baseUrl: body?.baseUrl ?? '',
       apiKey: body?.apiKey ?? '',
@@ -63,7 +58,6 @@ export class AiChatController {
   @Get('conversations')
   @RequirePermissions('ai-chat.read')
   list(@CurrentUser() user: AuthenticatedUser) {
-    this.assertEnabled();
     return this.chat.listConversations(user.id);
   }
 
@@ -73,7 +67,6 @@ export class AiChatController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: { title?: string },
   ) {
-    this.assertEnabled();
     return this.chat.createConversation(user.id, body?.title);
   }
 
@@ -83,7 +76,6 @@ export class AiChatController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    this.assertEnabled();
     return this.chat.getConversation(id, user.id);
   }
 
@@ -94,7 +86,6 @@ export class AiChatController {
     @Param('id') id: string,
     @Body() body: { title?: string },
   ) {
-    this.assertEnabled();
     return this.chat.updateConversation(id, user.id, body ?? {});
   }
 
@@ -104,7 +95,6 @@ export class AiChatController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    this.assertEnabled();
     return this.chat.deleteConversation(id, user.id);
   }
 
@@ -115,7 +105,6 @@ export class AiChatController {
     @Param('id') id: string,
     @Body() body: { content: string },
   ) {
-    this.assertEnabled();
     return this.chat.sendMessage(id, user.id, body?.content ?? '');
   }
 
@@ -127,8 +116,6 @@ export class AiChatController {
     @Body() body: { content: string },
     @Res() res: Response,
   ) {
-    this.assertEnabled();
-
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -159,12 +146,6 @@ export class AiChatController {
       });
     } finally {
       res.end();
-    }
-  }
-
-  private assertEnabled() {
-    if (!this.registry.isEnabled(AI_CHAT_MANIFEST.name)) {
-      throw new ServiceUnavailableException('AI Chat module is disabled');
     }
   }
 }

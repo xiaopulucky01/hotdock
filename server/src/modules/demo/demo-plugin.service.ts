@@ -23,10 +23,20 @@ export class DemoPluginService implements OnModuleInit, PluginLifecycle {
 
   async onModuleInit() {
     this.registry.register(DEMO_MANIFEST, this);
-    await this.registry.enable(DEMO_MANIFEST.name);
+    if (this.registry.shouldAutoEnable(DEMO_MANIFEST.name)) {
+      await this.registry.enable(DEMO_MANIFEST.name);
+    }
   }
 
   async onInstall() {
+    this.config.registerSchema([
+      {
+        key: 'demo.greeting',
+        type: 'string',
+        description: 'Demo greeting message',
+        default: 'Hello from Demo module',
+      },
+    ]);
     this.config.set('demo.greeting', 'Hello from Demo module');
     this.audit.record({
       module: DEMO_MANIFEST.name,
@@ -48,6 +58,7 @@ export class DemoPluginService implements OnModuleInit, PluginLifecycle {
       name: 'heartbeat',
       module: DEMO_MANIFEST.name,
       intervalMs: 60_000,
+      retries: 1,
       handler: async () => {
         await this.events.emit({
           name: 'demo.ping',

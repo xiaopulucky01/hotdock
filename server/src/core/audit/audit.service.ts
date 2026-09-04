@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PLATFORM_EVENTS } from '../contracts';
 import { EventBusService } from '../event-bus/event-bus.service';
+import { PersistenceService } from '../persistence/persistence.service';
 
 export interface AuditEntry {
   id: string;
@@ -10,20 +11,45 @@ export interface AuditEntry {
   tenantId?: string;
   resource?: string;
   detail?: Record<string, unknown>;
-  at: Date;
+  at: string;
 }
 
 @Injectable()
-export class AuditService {
-  private readonly entries: AuditEntry[] = [];
-  private readonly max = 2000;
+export class AuditService implements OnModuleInit {
+  private entries: AuditEntry[] = [];
+  private readonly max = 5000;
+  private loaded = false;
 
-  constructor(private readonly events: EventBusService) {}
+  constructor(
+    private readonly events: EventBusService,
+    private readonly persistence: PersistenceService,
+  ) {}
 
-  record(input: Omit<AuditEntry, 'id' | 'at'> & { at?: Date }): AuditEntry {
+  async onModuleInit() {
+    await this.ensureLoaded();
+  }
+
+  private async ensureLoaded() {
+    if (this.loaded) return;
+    const rows = await this.persistence.load<AuditEntry[]>('audit');
+    this.entries = rows ?? [];
+    this.loaded = true;
+  }
+
+  private async persist() {
+    await this.persistence.save(
+      'audit',
+      this.entries.slice(-this.max),
+    );
+  }
+
+  record(input: Omit<AuditEntry, 'id' | 'at'> & { at?: Date | string }): AuditEntry {
     const entry: AuditEntry = {
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      at: input.at ?? new Date(),
+      at:
+        typeof input.at === 'string'
+          ? input.at
+          : (input.at ?? new Date()).toISOString(),
       action: input.action,
       module: input.module,
       actorId: input.actorId,
@@ -33,13 +59,14 @@ export class AuditService {
     };
     this.entries.push(entry);
     if (this.entries.length > this.max) {
-      this.entries.shift();
+      this.entries = this.entries.slice(-this.max);
     }
+    void this.persist();
     void this.events.emit({
       name: PLATFORM_EVENTS.AUDIT_RECORDED,
       source: 'platform.audit',
       payload: entry,
-      occurredAt: entry.at,
+      occurredAt: new Date(entry.at),
     });
     return entry;
   }
@@ -47,6 +74,7 @@ export class AuditService {
   list(opts?: {
     module?: string;
     actorId?: string;
+    tenantId?: string;
     limit?: number;
   }): AuditEntry[] {
     let list = this.entries;
@@ -55,6 +83,9 @@ export class AuditService {
     }
     if (opts?.actorId) {
       list = list.filter((e) => e.actorId === opts.actorId);
+    }
+    if (opts?.tenantId) {
+      list = list.filter((e) => e.tenantId === opts.tenantId);
     }
     return list.slice(-(opts?.limit ?? 100));
   }
