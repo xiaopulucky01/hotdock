@@ -16,20 +16,31 @@ import { ObservabilityModule } from './observability/observability.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { CacheModule } from './cache/cache.module';
 import { NotificationModule } from './notification/notification.module';
+import { PluginRuntimeModule } from './plugin-runtime/plugin-runtime.module';
+import { SecretsModule } from './secrets/secrets.module';
+import { DistributedModule } from './distributed/distributed.module';
+import { CommandModule } from './command/command.module';
+import { WorkflowModule } from './workflow/workflow.module';
+import { RealtimeModule } from './realtime/realtime.module';
+import { PluginPackModule } from './plugin-pack/plugin-pack.module';
 
 /**
  * Platform Core — import this once in AppModule.
- * Business feature modules import contracts/services they need, not each other.
+ * Business modules are discovered/loaded by PluginRuntime — not statically imported here.
  */
 @Module({
   imports: [
     PersistenceModule,
+    SecretsModule,
     CacheModule,
+    DistributedModule,
     NotificationModule,
     EventBusModule,
     JobModule,
     StorageModule,
     ExtensionModule,
+    CommandModule,
+    WorkflowModule,
     ConfigModule,
     FeatureFlagModule,
     TenantModule,
@@ -37,18 +48,25 @@ import { NotificationModule } from './notification/notification.module';
     RbacModule,
     IdentityModule,
     ModuleRegistryModule,
+    PluginRuntimeModule,
+    PluginPackModule,
     AuditModule,
     ObservabilityModule,
+    RealtimeModule,
     GatewayModule,
   ],
   exports: [
     PersistenceModule,
+    SecretsModule,
     CacheModule,
+    DistributedModule,
     NotificationModule,
     EventBusModule,
     JobModule,
     StorageModule,
     ExtensionModule,
+    CommandModule,
+    WorkflowModule,
     ConfigModule,
     FeatureFlagModule,
     TenantModule,
@@ -56,8 +74,11 @@ import { NotificationModule } from './notification/notification.module';
     RbacModule,
     IdentityModule,
     ModuleRegistryModule,
+    PluginRuntimeModule,
+    PluginPackModule,
     AuditModule,
     ObservabilityModule,
+    RealtimeModule,
     GatewayModule,
   ],
 })

@@ -6,12 +6,14 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IdentityService } from '../identity/identity.service';
+import { ApiKeyService } from '../identity/api-key.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
     private readonly identity: IdentityService,
+    private readonly apiKeys: ApiKeyService,
     private readonly reflector: Reflector,
   ) {}
 
@@ -32,7 +34,12 @@ export class AuthGuard implements CanActivate {
     if (!auth) {
       throw new UnauthorizedException('Authorization required');
     }
-    req.user = this.identity.authenticate(auth);
+    const raw = auth.startsWith('Bearer ') ? auth.slice(7) : auth;
+    if (raw.startsWith('hdk_')) {
+      req.user = this.apiKeys.authenticate(raw);
+    } else {
+      req.user = this.identity.authenticate(auth);
+    }
     return true;
   }
 }

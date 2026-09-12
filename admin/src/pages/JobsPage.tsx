@@ -43,11 +43,24 @@ function scheduleBody(draft: ScheduleDraft): {
   return { intervalMs, cron: null }
 }
 
+function formatSchedule(job: JobInfo): string {
+  if (job.cron) return job.cron
+  if (typeof job.intervalMs === 'number') {
+    if (job.intervalMs >= 1000 && job.intervalMs % 1000 === 0) {
+      const sec = job.intervalMs / 1000
+      return sec >= 60 && sec % 60 === 0 ? `每 ${sec / 60} 分钟` : `每 ${sec} 秒`
+    }
+    return `每 ${job.intervalMs} ms`
+  }
+  return '—'
+}
+
 export function JobsPage() {
   const qc = useQueryClient()
   const [module, setModule] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [drafts, setDrafts] = useState<Record<string, ScheduleDraft>>({})
+  const [editingKey, setEditingKey] = useState<string | null>(null)
 
   const query = useQuery({
     queryKey: ['jobs', module],
@@ -85,6 +98,7 @@ export function JobsPage() {
           const { [key]: _, ...rest } = prev
           return rest
         })
+        setEditingKey(null)
       }
       void qc.invalidateQueries({ queryKey: ['jobs'] })
     },
@@ -114,6 +128,13 @@ export function JobsPage() {
     }
   }
 
+  function cancelEdit(job: JobInfo) {
+    const key = `${job.module}:${job.name}`
+    setDrafts((prev) => ({ ...prev, [key]: toDraft(job) }))
+    setEditingKey(null)
+    setError(null)
+  }
+
   return (
     <div>
       <PageHeader
@@ -127,6 +148,7 @@ export function JobsPage() {
             id="module"
             value={module}
             onChange={(e) => setModule(e.target.value)}
+            placeholder="按模块过滤"
           />
         </div>
       </div>
@@ -157,94 +179,120 @@ export function JobsPage() {
                   const key = `${j.module}:${j.name}`
                   const draft = drafts[key] ?? toDraft(j)
                   const enabled = j.enabled !== false
+                  const editing = editingKey === key
                   return (
                     <tr key={key}>
                       <td className="mono">{j.name}</td>
                       <td className="mono">{j.module}</td>
-                      <td>
-                        <div
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '0.35rem',
-                            minWidth: 200,
-                          }}
-                        >
-                          <select
-                            value={draft.mode}
-                            disabled={busy}
-                            onChange={(e) =>
-                              setDrafts((prev) => ({
-                                ...prev,
-                                [key]: {
-                                  ...draft,
-                                  mode: e.target.value as 'interval' | 'cron',
-                                },
-                              }))
-                            }
-                          >
-                            <option value="interval">间隔 (ms)</option>
-                            <option value="cron">Cron</option>
-                          </select>
-                          {draft.mode === 'interval' ? (
-                            <input
-                              type="number"
-                              min={100}
-                              value={draft.intervalMs}
+                      <td className="schedule-cell">
+                        {editing ? (
+                          <div className="schedule-editor">
+                            <select
+                              value={draft.mode}
                               disabled={busy}
                               onChange={(e) =>
                                 setDrafts((prev) => ({
                                   ...prev,
                                   [key]: {
                                     ...draft,
-                                    intervalMs: e.target.value,
+                                    mode: e.target.value as 'interval' | 'cron',
                                   },
                                 }))
                               }
-                              placeholder="60000"
-                            />
-                          ) : (
-                            <input
-                              className="mono"
-                              value={draft.cron}
+                            >
+                              <option value="interval">间隔 (ms)</option>
+                              <option value="cron">Cron</option>
+                            </select>
+                            {draft.mode === 'interval' ? (
+                              <input
+                                type="number"
+                                min={100}
+                                value={draft.intervalMs}
+                                disabled={busy}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: {
+                                      ...draft,
+                                      intervalMs: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="60000"
+                              />
+                            ) : (
+                              <input
+                                className="mono"
+                                value={draft.cron}
+                                disabled={busy}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: { ...draft, cron: e.target.value },
+                                  }))
+                                }
+                                placeholder="*/5 * * * *"
+                              />
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn-sm"
                               disabled={busy}
-                              onChange={(e) =>
+                              onClick={() => saveSchedule(j)}
+                            >
+                              保存
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              disabled={busy}
+                              onClick={() => cancelEdit(j)}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="schedule-summary">
+                            <span className="schedule-text">
+                              {formatSchedule(j)}
+                            </span>
+                            <button
+                              type="button"
+                              className="btn-link"
+                              disabled={busy}
+                              onClick={() => {
                                 setDrafts((prev) => ({
                                   ...prev,
-                                  [key]: { ...draft, cron: e.target.value },
+                                  [key]: toDraft(j),
                                 }))
-                              }
-                              placeholder="*/5 * * * *"
-                            />
-                          )}
-                          <button
-                            type="button"
-                            className="btn btn-sm"
-                            disabled={busy}
-                            onClick={() => saveSchedule(j)}
-                          >
-                            保存调度
-                          </button>
-                        </div>
+                                setEditingKey(key)
+                              }}
+                            >
+                              编辑
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td>{j.retries ?? '—'}</td>
                       <td>
-                        <button
-                          type="button"
-                          className={`toggle${enabled ? ' on' : ''}`}
-                          aria-pressed={enabled}
-                          disabled={busy}
-                          onClick={() =>
-                            updateMut.mutate({
-                              module: j.module,
-                              name: j.name,
-                              body: { enabled: !enabled },
-                            })
-                          }
-                          title={enabled ? '停用' : '启用'}
-                        />
-                        <span style={{ marginLeft: '0.5rem' }} className="muted">
-                          {enabled ? '已启用' : '已停用'}
+                        <span className="status-cell">
+                          <button
+                            type="button"
+                            className={`toggle${enabled ? ' on' : ''}`}
+                            aria-pressed={enabled}
+                            disabled={busy}
+                            onClick={() =>
+                              updateMut.mutate({
+                                module: j.module,
+                                name: j.name,
+                                body: { enabled: !enabled },
+                              })
+                            }
+                            title={enabled ? '停用' : '启用'}
+                          />
+                          <span className="muted">
+                            {enabled ? '已启用' : '已停用'}
+                          </span>
                         </span>
                       </td>
                       <td>{formatDate(j.lastRunAt)}</td>
@@ -255,7 +303,7 @@ export function JobsPage() {
                       <td>
                         <button
                           type="button"
-                          className="btn btn-sm"
+                          className="btn btn-sm btn-ghost"
                           disabled={busy}
                           onClick={() =>
                             runMut.mutate({

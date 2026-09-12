@@ -1,9 +1,10 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigKeySchema } from '../contracts/module-manifest';
 import { PersistenceService } from '../persistence/persistence.service';
+import { SecretsService } from '../secrets/secrets.service';
 
 /**
- * Namespaced config store with schema + secret masking + env overlay.
+ * Namespaced config store with schema + secret masking/encryption + env overlay.
  * Keys should be "module.key", e.g. "ecommerce.currency".
  */
 @Injectable()
@@ -12,7 +13,10 @@ export class PlatformConfigService implements OnModuleInit {
   private readonly schemas = new Map<string, ConfigKeySchema>();
   private loaded = false;
 
-  constructor(private readonly persistence: PersistenceService) {}
+  constructor(
+    private readonly persistence: PersistenceService,
+    @Optional() private readonly secrets?: SecretsService,
+  ) {}
 
   async onModuleInit() {
     await this.ensureLoaded();
@@ -30,16 +34,16 @@ export class PlatformConfigService implements OnModuleInit {
       for (const [k, v] of Object.entries(data.store)) this.store.set(k, v);
     } else {
       this.setMany({
-        'platform.name': 'AI Nest Platform',
+        'platform.name': 'Hotdock',
         'platform.apiPrefix': 'api',
         'platform.defaultLocale': 'zh-CN',
+        'platform.coreApi': '1.0.0',
       });
     }
     for (const s of data?.schemas ?? []) this.schemas.set(s.key, s);
   }
 
   private applyEnvOverlay() {
-    // PLATFORM_CONFIG_JSON='{"platform.name":"..."}'
     const raw = process.env.PLATFORM_CONFIG_JSON;
     if (raw) {
       try {
@@ -76,7 +80,12 @@ export class PlatformConfigService implements OnModuleInit {
 
   get<T = unknown>(key: string, defaultValue?: T): T | undefined {
     if (this.store.has(key)) {
-      return this.store.get(key) as T;
+      const value = this.store.get(key);
+      const schema = this.schemas.get(key);
+      if (schema?.secret && typeof value === 'string' && this.secrets) {
+        return this.secrets.reveal(value) as T;
+      }
+      return value as T;
     }
     const schemaDefault = this.schemas.get(key)?.default;
     return (schemaDefault as T | undefined) ?? defaultValue;
@@ -87,13 +96,22 @@ export class PlatformConfigService implements OnModuleInit {
     if (schema) {
       this.assertType(key, value, schema.type);
     }
-    this.store.set(key, value);
+    let stored = value;
+    if (schema?.secret && typeof value === 'string' && this.secrets) {
+      stored = this.secrets.seal(value);
+    }
+    this.store.set(key, stored);
     void this.persist();
   }
 
   setMany(entries: Record<string, unknown>) {
     for (const [k, v] of Object.entries(entries)) {
-      this.store.set(k, v);
+      const schema = this.schemas.get(k);
+      let stored = v;
+      if (schema?.secret && typeof v === 'string' && this.secrets) {
+        stored = this.secrets.seal(v);
+      }
+      this.store.set(k, stored);
     }
     void this.persist();
   }
@@ -103,16 +121,17 @@ export class PlatformConfigService implements OnModuleInit {
     void this.persist();
   }
 
-  list(prefix?: string, opts?: { maskSecrets?: boolean }): Record<string, unknown> {
+  list(
+    prefix?: string,
+    opts?: { maskSecrets?: boolean },
+  ): Record<string, unknown> {
     const mask = opts?.maskSecrets ?? true;
     const out: Record<string, unknown> = {};
     for (const [k, v] of this.store.entries()) {
       if (!prefix || k.startsWith(prefix)) {
         const schema = this.schemas.get(k);
         out[k] =
-          mask && schema?.secret && typeof v === 'string' && v
-            ? '***'
-            : v;
+          mask && schema?.secret && typeof v === 'string' && v ? '***' : v;
       }
     }
     return out;

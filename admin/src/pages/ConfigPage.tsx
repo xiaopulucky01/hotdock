@@ -25,7 +25,6 @@ function asString(value: unknown, fallback = ''): string {
 
 export function ConfigPage() {
   const qc = useQueryClient()
-  const [prefix, setPrefix] = useState('')
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
   const [error, setError] = useState<unknown>(null)
@@ -38,8 +37,8 @@ export function ConfigPage() {
   const [aiPrefillDone, setAiPrefillDone] = useState(false)
 
   const query = useQuery({
-    queryKey: ['config', prefix],
-    queryFn: () => platformApi.listConfig(prefix || undefined),
+    queryKey: ['config'],
+    queryFn: () => platformApi.listConfig(),
   })
 
   const schemasQuery = useQuery({
@@ -228,18 +227,6 @@ export function ConfigPage() {
         ) : null}
       </form>
 
-      <div className="toolbar">
-        <div className="field">
-          <label htmlFor="prefix">前缀</label>
-          <input
-            id="prefix"
-            value={prefix}
-            onChange={(e) => setPrefix(e.target.value)}
-            placeholder="ai-chat."
-          />
-        </div>
-      </div>
-
       <form className="card card-pad" onSubmit={onSubmit} style={{ marginBottom: '1rem' }}>
         <div style={{ marginBottom: '0.65rem' }}>
           <strong>高级：单键编辑</strong>
@@ -261,7 +248,7 @@ export function ConfigPage() {
               id="cfgValue"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              placeholder='"AI Nest 平台" 或 123 / true'
+              placeholder='"Hotdock" 或 123 / true'
               required
             />
           </div>

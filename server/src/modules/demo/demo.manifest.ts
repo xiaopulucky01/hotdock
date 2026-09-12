@@ -6,6 +6,8 @@ export const DEMO_MANIFEST: ModuleManifest = {
   displayName: 'Demo Module',
   description: 'Sample hot-pluggable business module for the platform base',
   author: 'platform',
+  coreApi: '^1.0.0',
+  capabilities: ['events.emit', 'extensions.contribute', 'jobs.register'],
   dependencies: [],
   permissions: [
     { code: 'demo.read', name: '查看 Demo' },

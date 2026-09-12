@@ -6,6 +6,13 @@ export const AI_CHAT_MANIFEST: ModuleManifest = {
   displayName: 'AI Chat',
   description: 'Hot-pluggable AI conversation module with pluggable providers',
   author: 'platform',
+  coreApi: '^1.0.0',
+  capabilities: [
+    'persistence.write',
+    'events.emit',
+    'extensions.contribute',
+    'secrets.read',
+  ],
   dependencies: [],
   permissions: [
     { code: 'ai-chat.read', name: '查看 AI 对话' },

@@ -179,6 +179,20 @@ export class IdentityService implements OnModuleInit {
     };
   }
 
+  /** Issue tokens for an existing local user (OAuth / impersonation helpers). */
+  issueTokensForUser(userId: string): AuthTokens {
+    const user = this.users.findById(userId);
+    if (!user || !user.active) {
+      throw new UnauthorizedException('User inactive');
+    }
+    return this.issueTokens(
+      user.id,
+      user.username,
+      user.tenantId,
+      user.roleIds,
+    );
+  }
+
   private issueTokens(
     userId: string,
     username: string,

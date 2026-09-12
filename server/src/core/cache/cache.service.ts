@@ -1,54 +1,93 @@
-import { Injectable } from '@nestjs/common';
-
-interface CacheEntry<T> {
-  value: T;
-  expiresAt?: number;
-}
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { CACHE_ADAPTER } from './cache.types';
+import type { CacheAdapter } from './cache.types';
+import { MemoryCacheAdapter } from './memory-cache.adapter';
 
 /**
- * Process-local TTL cache. Swap for Redis via adapter later.
+ * Cache facade with memory + optional Redis (REDIS_URL).
  */
 @Injectable()
-export class CacheService {
-  private readonly store = new Map<string, CacheEntry<unknown>>();
+export class CacheService implements OnModuleInit {
+  private readonly memory = new MemoryCacheAdapter();
+
+  constructor(
+    @Inject(CACHE_ADAPTER) private readonly adapter: CacheAdapter,
+  ) {}
+
+  async onModuleInit() {
+    const maybe = this.adapter as CacheAdapter & { init?: () => Promise<void> };
+    if (maybe.init) await maybe.init();
+  }
+
+  private remoteReady() {
+    const remote = this.adapter as CacheAdapter & { isReady?: () => boolean };
+    return remote.isReady?.() === true;
+  }
 
   get<T>(key: string): T | undefined {
-    const entry = this.store.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAt && entry.expiresAt < Date.now()) {
-      this.store.delete(key);
-      return undefined;
-    }
-    return entry.value as T;
+    return this.memory.getSync<T>(key);
   }
 
   set<T>(key: string, value: T, ttlMs?: number) {
-    this.store.set(key, {
-      value,
-      expiresAt: ttlMs ? Date.now() + ttlMs : undefined,
-    });
+    this.memory.setSync(key, value, ttlMs);
+    if (this.remoteReady()) {
+      void this.adapter.set(key, value, ttlMs);
+    }
   }
 
   delete(key: string) {
-    this.store.delete(key);
+    void this.deleteAsync(key);
   }
 
   clear(prefix?: string) {
-    if (!prefix) {
-      this.store.clear();
-      return;
+    void this.clearAsync(prefix);
+  }
+
+  async getAsync<T>(key: string): Promise<T | undefined> {
+    if (this.remoteReady()) {
+      const remote = await this.adapter.get<T>(key);
+      if (remote !== undefined) {
+        this.memory.setSync(key, remote);
+        return remote;
+      }
     }
-    for (const key of this.store.keys()) {
-      if (key.startsWith(prefix)) this.store.delete(key);
+    return this.memory.getSync<T>(key);
+  }
+
+  async setAsync<T>(key: string, value: T, ttlMs?: number): Promise<void> {
+    this.memory.setSync(key, value, ttlMs);
+    if (this.remoteReady()) {
+      await this.adapter.set(key, value, ttlMs);
     }
   }
 
-  wrap<T>(key: string, ttlMs: number, factory: () => T | Promise<T>): Promise<T> {
-    const hit = this.get<T>(key);
-    if (hit !== undefined) return Promise.resolve(hit);
-    return Promise.resolve(factory()).then((value) => {
-      this.set(key, value, ttlMs);
-      return value;
-    });
+  async deleteAsync(key: string): Promise<void> {
+    await this.memory.delete(key);
+    if (this.remoteReady()) {
+      await this.adapter.delete(key);
+    }
+  }
+
+  async clearAsync(prefix?: string): Promise<void> {
+    await this.memory.clear(prefix);
+    if (this.remoteReady()) {
+      await this.adapter.clear(prefix);
+    }
+  }
+
+  async wrap<T>(
+    key: string,
+    ttlMs: number,
+    factory: () => T | Promise<T>,
+  ): Promise<T> {
+    const hit = await this.getAsync<T>(key);
+    if (hit !== undefined) return hit;
+    const value = await Promise.resolve(factory());
+    await this.setAsync(key, value, ttlMs);
+    return value;
+  }
+
+  backend(): 'redis' | 'memory' {
+    return this.remoteReady() ? 'redis' : 'memory';
   }
 }

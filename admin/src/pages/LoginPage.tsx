@@ -36,7 +36,7 @@ export function LoginPage() {
   return (
     <div className="auth-page">
       <form className="auth-card" onSubmit={onSubmit}>
-        <h1>AI Nest 平台</h1>
+        <h1>Hotdock</h1>
         <p className="subtitle">登录热插拔模块管理台</p>
         <ErrorBanner error={error} />
         <div className="field">

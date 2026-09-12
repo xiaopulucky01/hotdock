@@ -6,33 +6,61 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { FeatureFlagService } from '../feature-flag/feature-flag.service';
+import { CacheService } from '../cache/cache.service';
+import { QuotaService } from '../tenant/quota.service';
 
 /**
- * Simple in-memory rate limiter per IP.
- * Swap for Redis token-bucket in production.
+ * Distributed-friendly rate limiter (Redis cache when REDIS_URL set).
  */
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  private readonly hits = new Map<string, { count: number; resetAt: number }>();
   private readonly windowMs = 60_000;
-  private readonly max = 120;
+  private readonly max = Number(process.env.RATE_LIMIT_MAX ?? 120);
 
-  constructor(private readonly features: FeatureFlagService) {}
+  constructor(
+    private readonly features: FeatureFlagService,
+    private readonly cache: CacheService,
+    private readonly quotas: QuotaService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     if (!this.features.isEnabled('platform.rateLimit.enabled', true)) {
       return true;
     }
-    const req = context.switchToHttp().getRequest<{ ip?: string }>();
-    const key = req.ip ?? 'unknown';
+    const req = context.switchToHttp().getRequest<{
+      ip?: string;
+      tenantId?: string;
+      user?: { tenantId?: string };
+      headers?: Record<string, string | undefined>;
+    }>();
+    const tenantId =
+      req.tenantId ??
+      req.user?.tenantId ??
+      req.headers?.['x-tenant-id'];
+    const ip = req.ip ?? 'unknown';
+    const key = `ratelimit:${tenantId ?? 'global'}:${ip}`;
+
+    let max = this.max;
+    if (tenantId) {
+      const q = this.quotas.get(tenantId);
+      if (q.apiRpm && q.apiRpm > 0) max = q.apiRpm;
+    }
+
+    const bucket = (await this.cache.getAsync<{
+      count: number;
+      resetAt: number;
+    }>(key)) ?? { count: 0, resetAt: Date.now() + this.windowMs };
+
     const now = Date.now();
-    let bucket = this.hits.get(key);
-    if (!bucket || bucket.resetAt < now) {
-      bucket = { count: 0, resetAt: now + this.windowMs };
-      this.hits.set(key, bucket);
+    if (bucket.resetAt < now) {
+      bucket.count = 0;
+      bucket.resetAt = now + this.windowMs;
     }
     bucket.count += 1;
-    if (bucket.count > this.max) {
+    const ttl = Math.max(1000, bucket.resetAt - now);
+    await this.cache.setAsync(key, bucket, ttl);
+
+    if (bucket.count > max) {
       throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
     }
     return true;

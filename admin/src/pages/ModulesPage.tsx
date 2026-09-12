@@ -69,7 +69,7 @@ export function ModulesPage() {
     <div>
       <PageHeader
         title="模块管理"
-        description="热插拔模块生命周期：安装 / 启用 / 禁用 / 卸载"
+        description="真热插拔：磁盘发现 → 进程加载 → 路由挂载；禁用卸路由，卸载可清出进程"
         actions={
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => query.refetch()}>
             刷新

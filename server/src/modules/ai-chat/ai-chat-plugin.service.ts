@@ -1,6 +1,5 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PluginLifecycle } from '../../core/contracts';
-import { ModuleRegistryService } from '../../core/module-registry/module-registry.service';
 import { ExtensionService } from '../../core/extension/extension.service';
 import { PlatformConfigService } from '../../core/config/config.service';
 import { AuditService } from '../../core/audit/audit.service';
@@ -9,24 +8,16 @@ import { AI_CHAT_MANIFEST } from './ai-chat.manifest';
 import { AiChatService } from './ai-chat.service';
 
 @Injectable()
-export class AiChatPluginService implements OnModuleInit, PluginLifecycle {
+export class AiChatPluginService implements PluginLifecycle {
   private readonly logger = new Logger(AiChatPluginService.name);
 
   constructor(
-    private readonly registry: ModuleRegistryService,
     private readonly extensions: ExtensionService,
     private readonly config: PlatformConfigService,
     private readonly audit: AuditService,
     private readonly rbac: RbacService,
     private readonly chat: AiChatService,
   ) {}
-
-  async onModuleInit() {
-    this.registry.register(AI_CHAT_MANIFEST, this);
-    if (this.registry.shouldAutoEnable(AI_CHAT_MANIFEST.name)) {
-      await this.registry.enable(AI_CHAT_MANIFEST.name);
-    }
-  }
 
   async onInstall() {
     const envKey = process.env.OPENAI_API_KEY ?? process.env.AI_CHAT_API_KEY;

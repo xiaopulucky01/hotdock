@@ -37,7 +37,7 @@ npm run dev
 
 - 登录 / 注册
 - Dashboard（health / metrics）
-- Modules 热插拔生命周期
+- Modules **真热插拔**（磁盘发现 → 进程加载 → 路由挂载；禁用卸路由，卸载可清出进程）
 - Users / Tenants / RBAC
 - Config / Feature Flags
 - Audit / Events / Jobs / Storage / Extensions

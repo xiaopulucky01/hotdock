@@ -1,6 +1,5 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PluginLifecycle } from '../../core/contracts';
-import { ModuleRegistryService } from '../../core/module-registry/module-registry.service';
 import { ExtensionService } from '../../core/extension/extension.service';
 import { JobSchedulerService } from '../../core/job/job-scheduler.service';
 import { PlatformConfigService } from '../../core/config/config.service';
@@ -9,24 +8,16 @@ import { AuditService } from '../../core/audit/audit.service';
 import { DEMO_MANIFEST } from './demo.manifest';
 
 @Injectable()
-export class DemoPluginService implements OnModuleInit, PluginLifecycle {
+export class DemoPluginService implements PluginLifecycle {
   private readonly logger = new Logger(DemoPluginService.name);
 
   constructor(
-    private readonly registry: ModuleRegistryService,
     private readonly extensions: ExtensionService,
     private readonly jobs: JobSchedulerService,
     private readonly config: PlatformConfigService,
     private readonly events: EventBusService,
     private readonly audit: AuditService,
   ) {}
-
-  async onModuleInit() {
-    this.registry.register(DEMO_MANIFEST, this);
-    if (this.registry.shouldAutoEnable(DEMO_MANIFEST.name)) {
-      await this.registry.enable(DEMO_MANIFEST.name);
-    }
-  }
 
   async onInstall() {
     this.config.registerSchema([

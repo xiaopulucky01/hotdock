@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
   OnModuleInit,
+  forwardRef,
 } from '@nestjs/common';
 import * as semver from 'semver';
 import {
@@ -18,6 +20,7 @@ import { PersistenceService } from '../persistence/persistence.service';
 import { ExtensionService } from '../extension/extension.service';
 import { JobSchedulerService } from '../job/job-scheduler.service';
 import { AuditService } from '../audit/audit.service';
+import { PluginRuntimeService } from '../plugin-runtime/plugin-runtime.service';
 
 interface PersistedModuleState {
   status: RegisteredModule['status'];
@@ -40,6 +43,8 @@ export class ModuleRegistryService implements OnModuleInit {
     private readonly extensions: ExtensionService,
     private readonly jobs: JobSchedulerService,
     private readonly audit: AuditService,
+    @Inject(forwardRef(() => PluginRuntimeService))
+    private readonly runtime: PluginRuntimeService,
   ) {}
 
   async onModuleInit() {
@@ -63,7 +68,6 @@ export class ModuleRegistryService implements OnModuleInit {
         error: mod.error,
       };
     }
-    // Keep states for modules not yet re-registered this boot
     for (const [name, state] of this.persisted.entries()) {
       if (!out[name]) out[name] = state;
     }
@@ -71,7 +75,11 @@ export class ModuleRegistryService implements OnModuleInit {
     await this.persistence.save('modules', out);
   }
 
-  register(manifest: ModuleManifest, lifecycle?: PluginLifecycle): RegisteredModule {
+  /** Register a discovered plugin (manifest only; code may not be loaded yet). */
+  register(
+    manifest: ModuleManifest,
+    lifecycle?: PluginLifecycle,
+  ): RegisteredModule {
     this.validateManifest(manifest);
     if (this.modules.has(manifest.name)) {
       throw new BadRequestException(
@@ -83,7 +91,6 @@ export class ModuleRegistryService implements OnModuleInit {
     let status: RegisteredModule['status'] = 'registered';
     if (saved?.status === 'disabled') status = 'disabled';
     else if (saved?.status === 'enabled' || saved?.status === 'installed') {
-      // Already installed in a prior boot — skip re-install on auto-enable
       status = 'installed';
     }
     const record: RegisteredModule = {
@@ -118,7 +125,16 @@ export class ModuleRegistryService implements OnModuleInit {
     return record;
   }
 
+  attachLifecycle(name: string, lifecycle: PluginLifecycle) {
+    this.lifecycles.set(name, lifecycle);
+  }
+
+  detachLifecycle(name: string) {
+    this.lifecycles.delete(name);
+  }
+
   async install(name: string): Promise<RegisteredModule> {
+    await this.runtime.ensureLoaded(name);
     const mod = this.require(name);
     this.assertDependencies(mod.manifest);
     await this.lifecycles.get(name)?.onInstall?.();
@@ -139,8 +155,10 @@ export class ModuleRegistryService implements OnModuleInit {
   }
 
   async enable(name: string): Promise<RegisteredModule> {
+    await this.runtime.ensureLoaded(name);
     const mod = this.require(name);
     if (mod.status === 'enabled') {
+      await this.runtime.mount(name);
       return mod;
     }
     this.assertDependencies(mod.manifest);
@@ -148,6 +166,7 @@ export class ModuleRegistryService implements OnModuleInit {
       await this.install(name);
     }
     await this.lifecycles.get(name)?.onEnable?.();
+    await this.runtime.mount(name);
     mod.status = 'enabled';
     mod.enabledAt = new Date();
     mod.error = undefined;
@@ -170,6 +189,7 @@ export class ModuleRegistryService implements OnModuleInit {
     const mod = this.require(name);
     this.assertNoDependents(name);
     await this.lifecycles.get(name)?.onDisable?.();
+    await this.runtime.unmount(name);
     this.jobs.unregisterModule(name);
     this.extensions.removeModule(name);
     mod.status = 'disabled';
@@ -188,13 +208,14 @@ export class ModuleRegistryService implements OnModuleInit {
     return mod;
   }
 
-  async uninstall(name: string): Promise<void> {
+  async uninstall(name: string): Promise<RegisteredModule | void> {
     const mod = this.require(name);
     this.assertNoDependents(name);
     if (mod.status === 'enabled') {
       await this.disable(name);
     }
     await this.lifecycles.get(name)?.onUninstall?.();
+    await this.runtime.unload(name);
     this.modules.delete(name);
     this.lifecycles.delete(name);
     this.persisted.delete(name);
@@ -210,6 +231,9 @@ export class ModuleRegistryService implements OnModuleInit {
       action: 'module.uninstall',
       resource: name,
     });
+    // Keep plugin available for re-install without restart
+    await this.runtime.reregisterDiscovered(name);
+    return this.modules.get(name);
   }
 
   getModules(): RegisteredModule[] {
@@ -227,7 +251,6 @@ export class ModuleRegistryService implements OnModuleInit {
   /** Whether a previously persisted module should auto-enable on boot */
   shouldAutoEnable(name: string): boolean {
     const saved = this.persisted.get(name);
-    // Auto-enable unless explicitly disabled / errored in a prior boot
     return saved?.status !== 'disabled' && saved?.status !== 'error';
   }
 
@@ -250,6 +273,19 @@ export class ModuleRegistryService implements OnModuleInit {
         `Invalid semver version "${manifest.version}" for module "${manifest.name}"`,
       );
     }
+    if (manifest.coreApi && !semver.validRange(manifest.coreApi)) {
+      throw new BadRequestException(
+        `Invalid coreApi range "${manifest.coreApi}" for module "${manifest.name}"`,
+      );
+    }
+    if (
+      manifest.coreApi &&
+      !semver.satisfies('1.0.0', manifest.coreApi)
+    ) {
+      throw new BadRequestException(
+        `Module "${manifest.name}" coreApi ${manifest.coreApi} incompatible with host 1.0.0`,
+      );
+    }
   }
 
   private assertDependencies(manifest: ModuleManifest) {
@@ -261,7 +297,10 @@ export class ModuleRegistryService implements OnModuleInit {
           `Dependency "${dep.name}" is missing or not enabled for module "${manifest.name}"`,
         );
       }
-      if (dep.version && !semver.satisfies(target.manifest.version, dep.version)) {
+      if (
+        dep.version &&
+        !semver.satisfies(target.manifest.version, dep.version)
+      ) {
         throw new BadRequestException(
           `Dependency "${dep.name}@${target.manifest.version}" does not satisfy "${dep.version}" for module "${manifest.name}"`,
         );

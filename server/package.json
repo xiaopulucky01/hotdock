@@ -1,7 +1,7 @@
 {
-  "name": "ai-nest-platform",
-  "version": "0.0.1",
-  "description": "",
+  "name": "hotdock-server",
+  "version": "1.0.0",
+  "description": "Hotdock platform core — hot-pluggable NestJS kernel",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -18,7 +18,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "hotdock": "node bin/hotdock.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
@@ -27,11 +28,13 @@
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "semver": "^7.8.5"
+    "semver": "^7.8.5",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.0",
@@ -46,6 +49,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/semver": "^7.8.0",
     "@types/supertest": "^7.0.0",
+    "@types/ws": "^8.18.1",
     "jest": "^30.0.0",
     "oxlint": "^1.58.0",
     "prettier": "^3.4.2",

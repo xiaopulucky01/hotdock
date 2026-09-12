@@ -5,9 +5,11 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import * as cron from 'node-cron';
 import { PersistenceService } from '../persistence/persistence.service';
+import { LockService } from '../distributed/lock.service';
 
 export type JobHandler = (payload?: unknown) => void | Promise<void>;
 
@@ -54,7 +56,10 @@ export class JobSchedulerService implements OnModuleInit, OnModuleDestroy {
   private overrides = new Map<string, JobOverride>();
   private loaded = false;
 
-  constructor(private readonly persistence: PersistenceService) {}
+  constructor(
+    private readonly persistence: PersistenceService,
+    @Optional() private readonly locks?: LockService,
+  ) {}
 
   async onModuleInit() {
     await this.ensureLoaded();
@@ -295,25 +300,43 @@ export class JobSchedulerService implements OnModuleInit, OnModuleDestroy {
   private async run(key: string) {
     const job = this.jobs.get(key);
     if (!job || !job.enabled) return;
-    const retries = job.retries ?? 1;
-    let attempt = 0;
-    while (attempt <= retries) {
-      try {
-        await job.handler();
-        job.lastRunAt = new Date();
-        job.lastError = undefined;
-        job.runCount += 1;
-        return;
-      } catch (err) {
-        attempt += 1;
-        job.lastError = (err as Error).message;
-        if (attempt > retries) {
-          job.failCount += 1;
-          this.logger.error(`Job ${key} failed: ${job.lastError}`);
-        } else {
-          await new Promise((r) => setTimeout(r, 100 * attempt));
+
+    const execute = async () => {
+      const retries = job.retries ?? 1;
+      let attempt = 0;
+      while (attempt <= retries) {
+        try {
+          await job.handler();
+          job.lastRunAt = new Date();
+          job.lastError = undefined;
+          job.runCount += 1;
+          return;
+        } catch (err) {
+          attempt += 1;
+          job.lastError = (err as Error).message;
+          if (attempt > retries) {
+            job.failCount += 1;
+            this.logger.error(`Job ${key} failed: ${job.lastError}`);
+          } else {
+            await new Promise((r) => setTimeout(r, 100 * attempt));
+          }
         }
       }
+    };
+
+    // Distributed lock so only one instance runs a given job at a time
+    if (this.locks) {
+      const result = await this.locks.withLock(
+        `job:${key}`,
+        60_000,
+        execute,
+        { waitMs: 0 },
+      );
+      if (result === undefined) {
+        this.logger.debug(`Job ${key} skipped — lock held elsewhere`);
+      }
+      return;
     }
+    await execute();
   }
 }

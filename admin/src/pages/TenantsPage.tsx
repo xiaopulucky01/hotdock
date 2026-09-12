@@ -72,7 +72,7 @@ export function TenantsPage() {
           <div style={{ marginBottom: '0.65rem' }}>
             <strong>平台开户</strong>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              仅拥有 platform.tenant.create 的平台管理员可创建
+              仅拥有「创建租户」权限的平台管理员可创建
             </p>
           </div>
           <div className="grid-2">

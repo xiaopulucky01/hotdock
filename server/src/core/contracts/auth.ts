@@ -5,6 +5,8 @@ export interface AuthenticatedUser {
   tenantId?: string;
   roles: string[];
   permissions: string[];
+  /** jwt user (default) | api_key service account | oauth */
+  kind?: 'user' | 'api_key' | 'oauth';
 }
 
 export interface AuthTokenPayload {

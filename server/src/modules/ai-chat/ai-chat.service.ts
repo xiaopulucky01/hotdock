@@ -3,10 +3,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PlatformConfigService } from '../../core/config/config.service';
 import { EventBusService } from '../../core/event-bus/event-bus.service';
+import { DocumentRepository } from '../../core/persistence/document.repository';
+import { QuotaService } from '../../core/tenant/quota.service';
 import { AI_CHAT_MANIFEST } from './ai-chat.manifest';
 import {
   ChatMessage,
@@ -17,6 +20,22 @@ import { AiProvider } from './providers/ai-provider';
 import { MockAiProvider } from './providers/mock.provider';
 import { OpenAiCompatibleProvider } from './providers/openai-compatible.provider';
 import { splitReasoningContent } from './providers/reasoning.util';
+
+type StoredConversation = {
+  userId: string;
+  title: string;
+  model?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type StoredMessage = {
+  conversationId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  reasoning?: string;
+  createdAt: string;
+};
 
 export type ChatSseEvent =
   | {
@@ -39,16 +58,95 @@ export type ChatSseEvent =
   | { type: 'error'; data: { message: string } };
 
 @Injectable()
-export class AiChatService {
+export class AiChatService implements OnModuleInit {
   private readonly conversations = new Map<string, Conversation>();
   private readonly messages = new Map<string, ChatMessage[]>();
+  private hydrated = false;
 
   constructor(
     private readonly config: PlatformConfigService,
     private readonly events: EventBusService,
+    private readonly docs: DocumentRepository,
+    private readonly quotas: QuotaService,
     private readonly mockProvider: MockAiProvider,
     private readonly openaiProvider: OpenAiCompatibleProvider,
   ) {}
+
+  async onModuleInit() {
+    await this.hydrate();
+  }
+
+  private async hydrate() {
+    if (this.hydrated) return;
+    const convPage = await this.docs.query<StoredConversation>(
+      'ai-chat',
+      'conversations',
+      { limit: 10_000 },
+    );
+    for (const doc of convPage.items) {
+      this.conversations.set(doc.id, {
+        id: doc.id,
+        userId: doc.userId,
+        title: doc.title,
+        model: doc.model,
+        createdAt: new Date(doc.createdAt),
+        updatedAt: new Date(doc.updatedAt),
+      });
+    }
+    const msgPage = await this.docs.query<StoredMessage>(
+      'ai-chat',
+      'messages',
+      { limit: 50_000, orderBy: 'createdAt', orderDir: 'asc' },
+    );
+    for (const doc of msgPage.items) {
+      const list = this.messages.get(doc.conversationId) ?? [];
+      list.push({
+        id: doc.id,
+        conversationId: doc.conversationId,
+        role: doc.role,
+        content: doc.content,
+        reasoning: doc.reasoning,
+        createdAt: new Date(doc.createdAt),
+      });
+      this.messages.set(doc.conversationId, list);
+    }
+    this.hydrated = true;
+  }
+
+  private async persistConversation(c: Conversation) {
+    const existing = await this.docs.findById<StoredConversation>(
+      'ai-chat',
+      'conversations',
+      c.id,
+    );
+    const payload: StoredConversation = {
+      userId: c.userId,
+      title: c.title,
+      model: c.model,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    };
+    if (existing) {
+      await this.docs.update('ai-chat', 'conversations', c.id, payload);
+    } else {
+      await this.docs.insert('ai-chat', 'conversations', payload, { id: c.id });
+    }
+  }
+
+  private async persistMessage(m: ChatMessage) {
+    await this.docs.insert<StoredMessage>(
+      'ai-chat',
+      'messages',
+      {
+        conversationId: m.conversationId,
+        role: m.role,
+        content: m.content,
+        reasoning: m.reasoning,
+        createdAt: m.createdAt.toISOString(),
+      },
+      { id: m.id },
+    );
+  }
 
   createConversation(userId: string, title?: string): Conversation {
     const now = new Date();
@@ -62,6 +160,7 @@ export class AiChatService {
     };
     this.conversations.set(conversation.id, conversation);
     this.messages.set(conversation.id, []);
+    void this.persistConversation(conversation);
 
     void this.events.emit({
       name: 'ai-chat.conversation.created',
@@ -99,6 +198,7 @@ export class AiChatService {
       conversation.title = patch.title.trim();
     }
     conversation.updatedAt = new Date();
+    void this.persistConversation(conversation);
     return conversation;
   }
 
@@ -106,6 +206,7 @@ export class AiChatService {
     this.requireOwned(conversationId, userId);
     this.conversations.delete(conversationId);
     this.messages.delete(conversationId);
+    void this.docs.delete('ai-chat', 'conversations', conversationId);
     return { deleted: true, id: conversationId };
   }
 
@@ -187,6 +288,7 @@ export class AiChatService {
       createdAt: new Date(),
     };
     history.push(userMessage);
+    void this.persistMessage(userMessage);
 
     if (conversation.title === '新对话') {
       conversation.title =
@@ -202,8 +304,8 @@ export class AiChatService {
     const systemPrompt =
       this.config.get<string>(
         'ai-chat.systemPrompt',
-        '你是 AI Nest Platform 的助手，回答简洁、准确、友好。',
-      ) ?? '你是 AI Nest Platform 的助手，回答简洁、准确、友好。';
+        '你是 Hotdock 的助手，回答简洁、准确、友好。',
+      ) ?? '你是 Hotdock 的助手，回答简洁、准确、友好。';
 
     const provider = this.resolveProvider();
     const request = {
@@ -266,9 +368,20 @@ export class AiChatService {
     };
     history.push(assistantMessage);
     this.messages.set(conversationId, history);
+    void this.persistMessage(assistantMessage);
 
     conversation.updatedAt = new Date();
     conversation.model = model;
+    void this.persistConversation(conversation);
+
+    const tokens = usage?.totalTokens ?? 0;
+    if (tokens > 0) {
+      try {
+        this.quotas.recordUsage('tenant_default', { llmTokens: tokens });
+      } catch {
+        /* soft quota */
+      }
+    }
 
     void this.events.emit({
       name: 'ai-chat.message.created',

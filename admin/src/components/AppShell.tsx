@@ -70,7 +70,7 @@ export function AppShell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <h1>AI Nest 平台</h1>
+          <h1>Hotdock</h1>
           <p>热插拔模块管理台</p>
         </div>
         <nav className="sidebar-nav">
@@ -140,7 +140,7 @@ export function AppShell() {
           </div>
           <button
             type="button"
-            className="btn btn-sm sidebar-logout"
+            className="sidebar-logout"
             onClick={async () => {
               await logout()
               navigate('/login', { replace: true })

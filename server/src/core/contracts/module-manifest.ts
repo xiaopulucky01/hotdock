@@ -1,6 +1,7 @@
 /**
  * Module contract: every business module must declare this.
- * Core discovers modules via Manifest, never by importing internals.
+ * Core discovers plugins via filesystem HotdockPlugin entries + Manifest,
+ * never by statically importing business module internals in AppModule.
  */
 export type ModuleStatus =
   | 'registered'
@@ -58,6 +59,13 @@ export interface ModuleManifest {
   features?: string[];
   /** Config keys this module reads (namespaced) */
   configKeys?: string[];
+  /**
+   * Declared host capabilities this plugin requires
+   * (e.g. persistence.write, secrets.read, jobs.register).
+   */
+  capabilities?: string[];
+  /** Semver range of Hotdock core API this plugin supports */
+  coreApi?: string;
 }
 
 export interface RegisteredModule {
